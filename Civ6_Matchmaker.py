@@ -6,22 +6,44 @@ import gspread
 from google.oauth2.service_account import Credentials
 import itertools
 from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
 
 # .env ファイルから環境変数を読み込む
 load_dotenv()
 
 # ==========================================
-# 1. 設定項目
+# 1. 設定項目（環境に合わせて書き換えてください）
 # ==========================================
-SPREADSHEET_KEY = os.getenv("SPREADSHEET_KEY", "あなたのスプレッドシートKEYをここに")
-CREDENTIALS_FILE = "credentials.json"
+# Google スプレッドシート設定（.envファイルから優先的に読み込みます）
+SPREADSHEET_KEY = os.getenv("SPREADSHEET_KEY")
+CREDENTIALS_FILE = os.getenv("CREDS_FILE", "credentials.json")  # 取得したGoogleサービスアカウントのJSONファイル名
 
+# マップ投票用カスタム絵文字設定
+# 書式: '表示名': '<:カスタム絵文字名:絵文字ID>' または '標準絵文字'
+# ※カスタム絵文字IDの調べ方: Discordで「\:絵文字名:」と入力して送信すると取得できます。
 MAP_EMOJIS = {
-    "七つの海": "🌊",
-    "パンゲア": "🗺️",
-    "群島": "🏝️",
-    "大陸": "🧭"
+    "七つの海": "🌊",       # 例として標準の海の絵文字
+    "パンゲア": "🗺️",       # 例として標準の地図の絵文字
+    "群島": "🏝️",          # 例として標準の島の絵文字
+    "大陸": "🧭"           # 例として標準 of コンパスの絵文字
 }
+
+# ==========================================
+# ダミーの Web サーバー (Render対応)
+# ==========================================
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+t = Thread(target=run)
+t.start()
 
 # ==========================================
 # 2. スプレッドシート連携クラス
@@ -37,72 +59,142 @@ class SheetManager:
         self.sheet = self.client.open_by_key(spreadsheet_key)
         
     def get_player_scores(self, discord_ids):
+        """指定されたDiscord IDリストのプレイヤーの総合スコアを取得する"""
         try:
+            # 各シートを取得
             players_ws = self.sheet.worksheet("プレイヤーデータ")
             config_ws = self.sheet.worksheet("マスタ設定")
+            
+            # プレイヤーデータ全取得 (1行目はヘッダー)
             all_players = players_ws.get_all_records()
+            # 設定データ（FLG名と配点）全取得
             configs = config_ws.get_all_records()
+            
+            # 配点を辞書化 {"FLG_内政": 3, "FLG_軍事": 2}
             weight_map = {row["FLG名"]: int(row["現在の配点"]) for row in configs if row.get("FLG名")}
             
             player_scores = {}
+            
             for p_id in discord_ids:
+                # 文字列型にして比較
                 str_id = str(p_id)
+                # スプレッドシートから該当ユーザーを検索
                 player_row = next((p for p in all_players if str(p.get("Discord_ID")) == str_id), None)
                 
                 if player_row:
-                    score = sum(int(player_row.get(col, 0)) * weight_map.get(col, 0) for col in weight_map)
-                    player_scores[p_id] = {"name": player_row.get("プレイヤー名", f"ID: {str_id}"), "score": score}
+                    score = 0
+                    # 各FLGの値(0 or 1)と、マスター設定の配点を掛け合わせて足す
+                    for col_name, val in player_row.items():
+                        if col_name in weight_map:
+                            try:
+                                score += int(val) * weight_map[col_name]
+                            except ValueError:
+                                pass
+                    player_scores[p_id] = {
+                        "name": player_row.get("プレイヤー名", f"ID: {str_id}"),
+                        "score": score
+                    }
                 else:
+                    # 登録がない新規プレイヤーは初期判定用に None を返して未登録を検出できるようにする
                     player_scores[p_id] = None
             return player_scores
         except Exception as e:
             print(f"[ERROR] スプレッドシート読み込み失敗: {e}")
+            # エラー時はフォールバックせず、呼び出し元に例外を投げて原因を特定させる
             raise e
 
     def get_master_flgs(self):
+        """マスター設定シートからFLG名と備考（説明）を取得する"""
         try:
             config_ws = self.sheet.worksheet("マスタ設定")
             configs = config_ws.get_all_records()
-            return [{"flg_name": row["FLG名"], "score": int(row["現在の配点"]), "description": row.get("備考", "説明なし")} for row in configs if row.get("FLG名")]
-        except:
+            # FLG名が存在するもののみ抽出
+            return [{
+                "flg_name": row["FLG名"],
+                "score": int(row["現在の配点"]),
+                "description": row.get("備考", "説明なし")
+            } for row in configs if row.get("FLG名")]
+        except Exception as e:
+            print(f"[ERROR] マスター設定の取得失敗: {e}")
             return []
 
     def register_or_update_player(self, discord_id: int, player_name: str, active_flgs: list):
+        """プレイヤーデータをスプレッドシートに登録、または既存データを上書き更新する"""
         try:
             players_ws = self.sheet.worksheet("プレイヤーデータ")
+            
+            # ヘッダー行を取得して列の配置を確定させる
             headers = players_ws.row_values(1)
+            if "Discord_ID" not in headers or "プレイヤー名" not in headers:
+                raise ValueError("プレイヤーデータシートのヘッダーに 'Discord_ID' または 'プレイヤー名' が存在しません。")
+
             all_players = players_ws.get_all_records()
             str_id = str(discord_id)
             
-            row_data = [str_id if h == "Discord_ID" else (player_name if h == "プレイヤー名" else (1 if h in active_flgs else 0)) for h in headers]
-            
-            row_idx = next((idx for idx, p in enumerate(all_players, start=2) if str(p.get("Discord_ID")) == str_id), None)
+            # 書き込むレコードの構成
+            row_data = []
+            for h in headers:
+                if h == "Discord_ID":
+                    row_data.append(str_id)
+                elif h == "プレイヤー名":
+                    row_data.append(player_name)
+                elif h in active_flgs:
+                    row_data.append(1)  # 該当FLGを有効化
+                else:
+                    # プレイヤーデータにあるが、今回選択されなかったFLG、または未定義列は0にする
+                    row_data.append(0)
+
+            # 既存プレイヤーの検索 (スプレッドシートは2行目からデータ開始)
+            row_idx = None
+            for idx, p in enumerate(all_players, start=2):
+                if str(p.get("Discord_ID")) == str_id:
+                    row_idx = idx
+                    break
+
             if row_idx:
-                players_ws.update(f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(row_data))}", [row_data])
+                # 既存データの上書き (A列からヘッダーの長さ分の列を更新)
+                end_col = gspread.utils.rowcol_to_a1(row_idx, len(row_data))
+                players_ws.update(f"A{row_idx}:{end_col}", [row_data])
+                print(f"[SUCCESS] プレイヤーデータを更新しました: {player_name}")
             else:
+                # 新規登録
                 players_ws.append_row(row_data)
+                print(f"[SUCCESS] プレイヤーデータを新規登録しました: {player_name}")
             return True
         except Exception as e:
             print(f"[ERROR] スプレッドシートへの登録に失敗しました: {e}")
             return False
 
 # ==========================================
-# 3. チーム均等化・UIロジック
+# 3. チーム均等化アルゴリズム
 # ==========================================
 def balance_teams(players_info):
+    """
+    参加プレイヤーを2チームに分け、チームの合計スコア差が最小になる組み合わせ（全探索）を返す。
+    """
     p_ids = list(players_info.keys())
     n = len(p_ids)
     half = n // 2
+    
     best_diff = float("inf")
-    best_team_a, best_team_b = [], []
+    best_team_a = []
+    best_team_b = []
+    
+    # 全組み合わせの列挙 (N/2 人を選ぶ)
     for team_a_ids in itertools.combinations(p_ids, half):
         team_a_ids = list(team_a_ids)
         team_b_ids = [p for p in p_ids if p not in team_a_ids]
+        
         score_a = sum(players_info[p_id]["score"] for p_id in team_a_ids)
         score_b = sum(players_info[p_id]["score"] for p_id in team_b_ids)
+        
         diff = abs(score_a - score_b)
+        
         if diff < best_diff:
-            best_diff, best_team_a, best_team_b = diff, team_a_ids, team_b_ids
+            best_diff = diff
+            best_team_a = team_a_ids
+            best_team_b = team_b_ids
+            
     return best_team_a, best_team_b
 
 # ==========================================
@@ -415,9 +507,8 @@ class RegisterChannelView(discord.ui.View):
         )
 
 
-
 # ==========================================
-# 5. BOT基本クラス (同期処理を実装)
+# 5. BOT基本クラスとイベントハンドラ
 # ==========================================
 class CivBot(commands.Bot):
     def __init__(self):
@@ -429,16 +520,12 @@ class CivBot(commands.Bot):
         self.sheet_manager = SheetManager(SPREADSHEET_KEY, CREDENTIALS_FILE)
 
     async def setup_hook(self):
-        # 【重要】ここで同期処理を実行
-        try:
-            self.tree.clear_commands(guild=None) # グローバルコマンドをクリア
-            await self.tree.sync()               # 再登録
-            print("[SUCCESS] スラッシュコマンドが同期されました")
-        except Exception as e:
-            print(f"[ERROR] 同期中にエラー: {e}")
-            
-        # 永続Viewのリスナー登録
-        # self.add_view(RegisterChannelView(self.sheet_manager))
+        # スラッシュコマンドをDiscordに登録
+        await self.tree.sync()
+        print("[INFO] スラッシュコマンドが同期されました")
+        
+        # 永続Viewのリスナー登録（BOTが再起動してもアンケート常設ボタンを反応させるため）
+        self.add_view(RegisterChannelView(self.sheet_manager))
 
 bot = CivBot()
 
