@@ -6,6 +6,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import itertools
 from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
 
 # .env ファイルから環境変数を読み込む
 load_dotenv()
@@ -26,6 +28,22 @@ MAP_EMOJIS = {
     "群島": "🏝️",          # 例として標準の島の絵文字
     "大陸": "🧭"           # 例として標準 of コンパスの絵文字
 }
+
+# ==========================================
+# ダミーの Web サーバー
+# ==========================================
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+# BOTを起動する前にこの関数を呼び出す
+t = Thread(target=run)
+t.start()
 
 # ==========================================
 # 2. スプレッドシート連携クラス
