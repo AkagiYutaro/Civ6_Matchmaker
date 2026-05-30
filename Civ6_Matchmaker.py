@@ -567,7 +567,9 @@ async def civ_match(interaction: discord.Interaction):
     view = MatchmakerView(host=host, sheet_manager=bot.sheet_manager)
     
     # メッセージの送信
-    await interaction.response.send_message(embed=embed, view=view)
+    #await interaction.response.send_message(embed=embed, view=view)
+    # メンションをEmbedの外側に送信してから、Embedを送信する
+    await interaction.response.send_message(content=f"{mention_str}", embed=embed, view=view)
     
     # 送信したメッセージオブジェクトを取得
     sent_msg = await interaction.original_response()
