@@ -24,8 +24,8 @@ CREDENTIALS_FILE = os.getenv("CREDS_FILE", "credentials.json")  # 取得したGo
 # ※カスタム絵文字IDの調べ方: Discordで「\:絵文字名:」と入力して送信すると取得できます。
 MAP_EMOJIS = {
     "七つの海": "7️⃣",       # 例として標準の海の絵文字
-    "パンゲア": "regional_indicator_p",
-    "パンゲアウルティマ": ":regional_indicator_u",
+    "パンゲア": "🇵",
+    "パンゲアウルティマ": "🇺",
     "群島": "🏝️",          # 例として標準の島の絵文字
     "地軸傾斜": "🏹"
 }
