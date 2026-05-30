@@ -551,11 +551,10 @@ async def civ_match(interaction: discord.Interaction):
     # 募集用メッセージの作成
     embed = discord.Embed(
         title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
-        description=f"ホスト <@{host.id}> が募集を開始しました！\n"
+        description=f"{mention_str}\n\nホスト <@{host.id}> が募集を開始しました！\n"
                     "以下のボタンから「参加」または「辞退」を表明してください。\n"
-                    "マップスタンプ（リアクション）に投票をお願いします。",
+                    "また、お好きなマップスタンプ（リアクション）に投票をお願いします。",
         color=discord.Color.blue()
-    )
     embed.add_field(name=f"参加者一覧", value=f"・<@{host.id}>", inline=False)
     
     # 投票可能なスタンプ一覧を説明に追加
