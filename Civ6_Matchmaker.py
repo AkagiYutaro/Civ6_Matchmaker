@@ -543,6 +543,10 @@ async def on_ready():
 @bot.tree.command(name="civ_match", description="Civ6マルチプレイの参加登録とマップ投票、チーム分けを開始します。")
 async def civ_match(interaction: discord.Interaction):
     host = interaction.user
+
+    # メンションしたいロールIDをここに設定
+    ROLE_ID = 1506555260204744714  # ここを自分のロールIDに書き換えてください
+    mention_str = f"<@&{ROLE_ID}>"
     
     # 募集用メッセージの作成
     embed = discord.Embed(
