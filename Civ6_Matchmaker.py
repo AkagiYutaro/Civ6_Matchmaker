@@ -555,6 +555,7 @@ async def civ_match(interaction: discord.Interaction):
                     "以下のボタンから「参加」または「辞退」を表明してください。\n"
                     "また、お好きなマップスタンプ（リアクション）に投票をお願いします。",
         color=discord.Color.blue()
+    )
     embed.add_field(name=f"参加者一覧", value=f"・<@{host.id}>", inline=False)
     
     # 投票可能なスタンプ一覧を説明に追加
