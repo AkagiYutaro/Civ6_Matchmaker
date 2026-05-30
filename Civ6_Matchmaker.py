@@ -545,7 +545,8 @@ async def civ_match(interaction: discord.Interaction):
     host = interaction.user
 
     # メンションしたいロールIDをここに設定
-    ROLE_ID = 1506555260204744714  # ここを自分のロールIDに書き換えてください
+    ROLE_ID = 1506354859790569504
+    #1506555260204744714  # ここを自分のロールIDに書き換えてください
     mention_str = f"<@&{ROLE_ID}>"
     
     # 募集用メッセージの作成
