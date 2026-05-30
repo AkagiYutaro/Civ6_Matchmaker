@@ -23,10 +23,11 @@ CREDENTIALS_FILE = os.getenv("CREDS_FILE", "credentials.json")  # 取得したGo
 # 書式: '表示名': '<:カスタム絵文字名:絵文字ID>' または '標準絵文字'
 # ※カスタム絵文字IDの調べ方: Discordで「\:絵文字名:」と入力して送信すると取得できます。
 MAP_EMOJIS = {
-    "七つの海": "🌊",       # 例として標準の海の絵文字
-    "パンゲア": "🗺️",       # 例として標準の地図の絵文字
+    "七つの海": "7️⃣",       # 例として標準の海の絵文字
+    "パンゲア": "regional_indicator_p",
+    "パンゲアウルティマ": ":regional_indicator_u",
     "群島": "🏝️",          # 例として標準の島の絵文字
-    "大陸": "🧭"           # 例として標準 of コンパスの絵文字
+    "地軸傾斜": "🏹"
 }
 
 # ==========================================
@@ -546,10 +547,10 @@ async def civ_match(interaction: discord.Interaction):
         title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
         description=f"ホスト <@{host.id}> が募集を開始しました！\n"
                     "以下のボタンから「参加」または「辞退」を表明してください。\n"
-                    "また、お好きなマップスタンプ（リアクション）に投票をお願いします。",
+                    "マップスタンプ（リアクション）に投票をお願いします。",
         color=discord.Color.blue()
     )
-    embed.add_field(name=f"参加者一覧 (1名)", value=f"・<@{host.id}>", inline=False)
+    embed.add_field(name=f"参加者一覧", value=f"・<@{host.id}>", inline=False)
     
     # 投票可能なスタンプ一覧を説明に追加
     vote_guide = "\n".join([f"{emoji} : **{name}**" for name, emoji in MAP_EMOJIS.items()])
