@@ -398,6 +398,16 @@ class MatchmakerView(discord.ui.View):
         await interaction.followup.edit_message(message_id=original_msg.id, view=self)
         await interaction.followup.send(embed=result_embed)
 
+    @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 募集したホストのみ実行可能
+        if interaction.user.id != self.host.id:
+            await interaction.response.send_message("このボタンは募集したホストのみ押すことができます。", ephemeral=True)
+            return
+            
+        # 募集メッセージ自体を削除する
+        await interaction.message.delete()
+
 
 # ==========================================
 # 4.5. 自己申告アンケート用 UIコンポーネント
