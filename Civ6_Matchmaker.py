@@ -203,6 +203,38 @@ def balance_teams(players_info):
 # ==========================================
 # 4. Discord UIコンポーネント (募集ボタンとビュー)
 # ==========================================
+class RemovePlayerSelect(discord.ui.Select):
+    def __init__(self, parent_view, original_message):
+        options = []
+        for p_id, p_name in parent_view.participants.items():
+            options.append(discord.SelectOption(label=p_name, value=str(p_id)))
+        
+        if not options:
+            options.append(discord.SelectOption(label="参加者がいません", value="none"))
+
+        super().__init__(placeholder="辞退させるプレイヤーを選択", options=options, min_values=1, max_values=1)
+        self.parent_view = parent_view
+        self.original_message = original_message
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("対象がいません。", ephemeral=True)
+            return
+
+        p_id = int(self.values[0])
+        if p_id in self.parent_view.participants:
+            removed_name = self.parent_view.participants.pop(p_id)
+            # 親のViewのEmbedを更新
+            await self.parent_view.update_embed(original_message=self.original_message)
+            await interaction.response.send_message(f"✅ {removed_name} を今回の参加者リストから除外しました。", ephemeral=True)
+        else:
+            await interaction.response.send_message("既に除外されています。", ephemeral=True)
+
+class RemovePlayerView(discord.ui.View):
+    def __init__(self, parent_view, original_message):
+        super().__init__(timeout=120)
+        self.add_item(RemovePlayerSelect(parent_view, original_message))
+
 class MatchmakerView(discord.ui.View):
     def __init__(self, host: discord.Member, sheet_manager: SheetManager):
         super().__init__(timeout=None) # 永続化するためにタイムアウトなし
@@ -210,15 +242,25 @@ class MatchmakerView(discord.ui.View):
         self.sheet_manager = sheet_manager
         self.participants = {host.id: host.display_name}  # 初期状態ではホストが参加
 
-    async def update_embed(self, interaction: discord.Interaction):
+    async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
         """参加者リストの表示を更新する"""
-        embed = interaction.message.embeds[0]
+        if interaction:
+            embed = interaction.message.embeds[0]
+        elif original_message:
+            embed = original_message.embeds[0]
+        else:
+            return
+            
         # フィールドの上書き
         member_list_str = "\n".join([f"・<@{p_id}>" for p_id in self.participants.keys()]) if self.participants else "現在参加者なし"
         embed.set_field_at(0, name=f"参加者一覧 ({len(self.participants)}名)", value=member_list_str, inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+        
+        if interaction:
+            await interaction.response.edit_message(embed=embed, view=self)
+        elif original_message:
+            await original_message.edit(embed=embed, view=self)
 
-    @discord.ui.button(label="参加する", style=discord.ButtonStyle.success, custom_id="civ_join_btn")
+    @discord.ui.button(label="参加する", style=discord.ButtonStyle.success, custom_id="civ_join_btn", row=0)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         
@@ -246,20 +288,35 @@ class MatchmakerView(discord.ui.View):
 
         if user.id not in self.participants:
             self.participants[user.id] = user.display_name
-            await self.update_embed(interaction)
+            await self.update_embed(interaction=interaction)
         else:
             await interaction.response.send_message("既に登録されています！", ephemeral=True)
 
-    @discord.ui.button(label="辞退する", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn")
+    @discord.ui.button(label="辞退する", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn", row=0)
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         if user.id in self.participants:
             del self.participants[user.id]
-            await self.update_embed(interaction)
+            await self.update_embed(interaction=interaction)
         else:
             await interaction.response.send_message("まだ参加登録していません！", ephemeral=True)
 
-    @discord.ui.button(label="集計＆チーム分け（募集者のみ）", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn")
+    @discord.ui.button(label="不在者を外す", style=discord.ButtonStyle.secondary, custom_id="civ_remove_absent_btn", row=1)
+    async def remove_absent_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 募集したホストのみ実行可能
+        if interaction.user.id != self.host.id:
+            await interaction.response.send_message("このボタンは募集したホストのみ押すことができます。", ephemeral=True)
+            return
+            
+        if len(self.participants) == 0:
+            await interaction.response.send_message("参加者が誰もいません。", ephemeral=True)
+            return
+
+        # 誰を除外するかのドロップダウン(エフェメラル)を表示する
+        remove_view = RemovePlayerView(parent_view=self, original_message=interaction.message)
+        await interaction.response.send_message("参加者リストから除外するプレイヤーを選択してください:", view=remove_view, ephemeral=True)
+
+    @discord.ui.button(label="集計＆チーム分け（募集者のみ）", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn", row=2)
     async def calc_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 募集したホストのみ実行可能
         if interaction.user.id != self.host.id:
@@ -585,44 +642,7 @@ async def civ_match(interaction: discord.Interaction):
             print(f"[WARNING] リアクションの追加に失敗: {emoji} ({e})")
 
 # ==========================================
-# 6.2. スラッシュコマンド (/civ_remove)
-# ==========================================
-@bot.tree.command(name="civ_remove", description="【ホスト用】不在のプレイヤーを参加者リストから削除します。")
-@app_commands.describe(target_user="削除したいプレイヤーを選択してください")
-async def civ_remove(interaction: discord.Interaction, target_user: discord.Member):
-# スプレッドシートAPIの通信によるタイムアウトを防ぐため、待機状態(考え中...)にする
-    # ephemeral=True で実行者(ホスト)にだけ見えるようにします
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        # ---------------------------------------------------------
-        # ① スプレッドシートから対象ユーザーを検索する
-        # ※ `sheet` は対象のワークシートオブジェクトに置き換えてください
-        # ※ `SheetManager`クラスなどがある場合は、そこから呼び出してください
-        # ---------------------------------------------------------
-        
-        # 例：DiscordのIDを文字列にして検索する
-        search_query = str(target_user.id) 
-        
-        # ワークシート全体からIDを検索
-        cell = sheet.find(search_query) 
-
-        # ---------------------------------------------------------
-        # ② 見つかった場合、その行を削除する
-        # ---------------------------------------------------------
-        if cell:
-            # cell.row で見つかった行番号を取得し、delete_rows で行ごと削除
-            sheet.delete_rows(cell.row)
-            
-            await interaction.followup.send(f"✅ スプレッドシートから {target_user.display_name} を削除しました。")
-        else:
-            await interaction.followup.send(f"⚠️ {target_user.display_name} はスプレッドシートに登録されていません（見つかりませんでした）。")
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ スプレッドシートの操作中にエラーが発生しました: {e}")
-
-# ==========================================
-# 6.3. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
+# 6.2. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
 # ==========================================
 @bot.tree.command(name="civ_setup_register", description="【管理者専用】プレイヤー用の自己申告スキル登録パネルをこのチャンネルに設置します。")
 @app_commands.default_permissions(administrator=True) # 管理者権限を持つメンバーのみ実行可能
