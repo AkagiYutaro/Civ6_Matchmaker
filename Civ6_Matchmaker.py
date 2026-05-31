@@ -538,23 +538,26 @@ async def on_ready():
     await bot.change_presence(activity=discord.Game(name="Civilization VI"))
 
 # ==========================================
-# 6. スラッシュコマンド (/civ_match)
+# 6. スラッシュコマンド
+# ==========================================
+
+# ==========================================
+# 6.1. (/civ_match)
 # ==========================================
 @bot.tree.command(name="civ_match", description="Civ6マルチプレイの参加登録とマップ投票、チーム分けを開始します。")
 async def civ_match(interaction: discord.Interaction):
     host = interaction.user
 
     # メンションしたいロールIDをここに設定
-    ROLE_ID = 1506354859790569504
-    #1506555260204744714  # ここを自分のロールIDに書き換えてください
+    ROLE_ID = 1506555260204744714  # ここを自分のロールIDに書き換えてください
     mention_str = f"<@&{ROLE_ID}>"
-    
+
     # 募集用メッセージの作成
     embed = discord.Embed(
         title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
-        description=f"{mention_str}\n\nホスト <@{host.id}> が募集を開始しました！\n"
+        description=f"ホスト <@{host.id}> が募集を開始しました！\n"
                     "以下のボタンから「参加」または「辞退」を表明してください。\n"
-                    "また、お好きなマップスタンプ（リアクション）に投票をお願いします。",
+                    "マップスタンプ（リアクション）に投票をお願いします。",
         color=discord.Color.blue()
     )
     embed.add_field(name=f"参加者一覧", value=f"・<@{host.id}>", inline=False)
@@ -570,7 +573,7 @@ async def civ_match(interaction: discord.Interaction):
     #await interaction.response.send_message(embed=embed, view=view)
     # メンションをEmbedの外側に送信してから、Embedを送信する
     await interaction.response.send_message(content=f"{mention_str}", embed=embed, view=view)
-    
+
     # 送信したメッセージオブジェクトを取得
     sent_msg = await interaction.original_response()
     
@@ -581,9 +584,45 @@ async def civ_match(interaction: discord.Interaction):
         except Exception as e:
             print(f"[WARNING] リアクションの追加に失敗: {emoji} ({e})")
 
+# ==========================================
+# 6.2. スラッシュコマンド (/civ_remove)
+# ==========================================
+@bot.tree.command(name="civ_remove", description="【ホスト用】不在のプレイヤーを参加者リストから削除します。")
+@app_commands.describe(target_user="削除したいプレイヤーを選択してください")
+async def civ_remove(interaction: discord.Interaction, target_user: discord.Member):
+# スプレッドシートAPIの通信によるタイムアウトを防ぐため、待機状態(考え中...)にする
+    # ephemeral=True で実行者(ホスト)にだけ見えるようにします
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ---------------------------------------------------------
+        # ① スプレッドシートから対象ユーザーを検索する
+        # ※ `sheet` は対象のワークシートオブジェクトに置き換えてください
+        # ※ `SheetManager`クラスなどがある場合は、そこから呼び出してください
+        # ---------------------------------------------------------
+        
+        # 例：DiscordのIDを文字列にして検索する
+        search_query = str(target_user.id) 
+        
+        # ワークシート全体からIDを検索
+        cell = sheet.find(search_query) 
+
+        # ---------------------------------------------------------
+        # ② 見つかった場合、その行を削除する
+        # ---------------------------------------------------------
+        if cell:
+            # cell.row で見つかった行番号を取得し、delete_rows で行ごと削除
+            sheet.delete_rows(cell.row)
+            
+            await interaction.followup.send(f"✅ スプレッドシートから {target_user.display_name} を削除しました。")
+        else:
+            await interaction.followup.send(f"⚠️ {target_user.display_name} はスプレッドシートに登録されていません（見つかりませんでした）。")
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ スプレッドシートの操作中にエラーが発生しました: {e}")
 
 # ==========================================
-# 6.5. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
+# 6.3. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
 # ==========================================
 @bot.tree.command(name="civ_setup_register", description="【管理者専用】プレイヤー用の自己申告スキル登録パネルをこのチャンネルに設置します。")
 @app_commands.default_permissions(administrator=True) # 管理者権限を持つメンバーのみ実行可能
