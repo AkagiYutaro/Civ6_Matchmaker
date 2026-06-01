@@ -27,8 +27,9 @@ MAP_EMOJIS = {
     "パンゲア": "🇵",
     "パンゲアウルティマ": "🇺",
     "湖": "🇱",
+    "ハイランド": "🐴",
     "豊かな台地": "🌳",
-    "群島": "🏝️",          # 例として標準の島の絵文字
+    "群島": "🏝️",
     "地軸傾斜": "🏹"
 }
 
@@ -406,7 +407,7 @@ class MatchmakerView(discord.ui.View):
             return
             
         # 先に全体に向けて解散のメッセージを送信する（ephemeral=False なので全員に見えます）
-        await interaction.response.send_message(f"⚠️ ホスト <@{self.host.id}> が今回のCiv6マルチプレイ募集をキャンセル（解散）しました。")
+        await interaction.response.send_message(f"⚠️ ホスト <@{self.host.id}> が今回のCiv6マルチプレイ募集をキャンセルしました。")
         
         # 元の募集メッセージ（パネル）自体は削除して画面をスッキリさせる
         await interaction.message.delete()
