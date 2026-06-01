@@ -280,8 +280,8 @@ class MatchmakerView(discord.ui.View):
         if players_info[user.id] is None:
             # 未登録ユーザーは弾き、アンケート回答を促す
             await interaction.response.send_message(
-                "⚠️ **チームの戦力バランスを計算するため、事前に自己申告アンケートへの回答が必要です。**\n"
-                "サーバー内のスキル登録チャンネル（管理者が `/civ_setup_register` で設置した場所）にてアンケートに答えてから、再度参加ボタンを押してください！",
+                "⚠️ **チームの戦力バランスを計算するため、事前にアンケートへの回答が必要です。**\n"
+                "アンケートに答えてから、再度参加ボタンを押してください！",
                 ephemeral=True
             )
             return
@@ -316,7 +316,7 @@ class MatchmakerView(discord.ui.View):
         remove_view = RemovePlayerView(parent_view=self, original_message=interaction.message)
         await interaction.response.send_message("参加者リストから除外するプレイヤーを選択してください:", view=remove_view, ephemeral=True)
 
-    @discord.ui.button(label="集計＆チーム分け（募集者のみ）", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn", row=2)
+    @discord.ui.button(label="チーム分け（募集者のみ）", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn", row=2)
     async def calc_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 募集したホストのみ実行可能
         if interaction.user.id != self.host.id:
@@ -405,7 +405,10 @@ class MatchmakerView(discord.ui.View):
             await interaction.response.send_message("このボタンは募集したホストのみ押すことができます。", ephemeral=True)
             return
             
-        # 募集メッセージ自体を削除する
+        # 先に全体に向けて解散のメッセージを送信する（ephemeral=False なので全員に見えます）
+        await interaction.response.send_message(f"⚠️ ホスト <@{self.host.id}> が今回のCiv6マルチプレイ募集をキャンセル（解散）しました。")
+        
+        # 元の募集メッセージ（パネル）自体は削除して画面をスッキリさせる
         await interaction.message.delete()
 
 
@@ -568,7 +571,7 @@ class RegisterChannelView(discord.ui.View):
         # アンケート用のドロップダウンを「エフェメラル（本人限定）」で追加提示
         view = RegistrationFormView(self.sheet_manager, flg_list)
         await interaction.followup.send(
-            "📋 **【Civ6 自己申告スキル登録】**\n"
+            "📋 **【Civ6 プレイヤー登録】**\n"
             "あなたが実戦・マルチ等で「達成可能」「得意である」と自信を持って言える項目を、"
             "以下のメニューから**すべて**選択してください。\n"
             "選択し終えたら、下部にある「登録する」ボタンを押してください。",
@@ -658,7 +661,7 @@ async def civ_match(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True) # 管理者権限を持つメンバーのみ実行可能
 async def civ_setup_register(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="⚔️ Civ6 マルチスキル自己申告アンケート ⚔️",
+        title="⚔️ Civ6 マルチスキルアンケート ⚔️",
         description="Civ6マルチサーバーへようこそ！\n"
                     "対戦時の**チーム戦力を均等にして、全員が最高に面白い試合**を行えるようにするため、"
                     "プレイヤー全員にスキル登録をお願いしています。\n\n"
