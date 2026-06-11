@@ -1,132 +1,154 @@
 import gspread
 from google.oauth2.service_account import Credentials
-import os
 
-# ==========================================
-# データベース管理者 (SheetManager)
-# ==========================================
 class SheetManager:
-    """Google Sheets APIとの通信、プレイヤーデータの安全な読み書きを担当します。"""
+    """Googleスプレッドシートとの通信とデータ処理を専門に行うクラス"""
     
-    # プレイヤーデータシートの固定ヘッダー定義
-    STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "WIN", "LOSE", "WinRate", "総プレイ数"]
-
     def __init__(self, spreadsheet_key: str, creds_file: str):
-        # Google APIのスコープ設定
         self.scope = [
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive"
         ]
-        
-        # 鍵ファイルの存在確認 (エラーの早期発見)
-        if not os.path.exists(creds_file):
-            raise FileNotFoundError(f"[ERROR] 認証ファイル '{creds_file}' が見つかりません。")
-            
-        try:
-            self.creds = Credentials.from_service_account_file(creds_file, scopes=self.scope)
-            self.client = gspread.authorize(self.creds)
-            self.sheet = self.client.open_by_key(spreadsheet_key)
-            print("[SUCCESS] スプレッドシートへの接続に成功しました。")
-        except Exception as e:
-            print(f"[CRITICAL ERROR] スプレッドシートの認証・接続に失敗: {e}")
-            raise e
+        self.creds = Credentials.from_service_account_file(creds_file, scopes=self.scope)
+        self.client = gspread.authorize(self.creds)
+        self.sheet = self.client.open_by_key(spreadsheet_key)
 
     def get_map_emojis(self) -> dict:
-        """マスタ設定シートからマップ名と絵文字の定義を取得する"""
+        """「MAP」シートからマップ名と絵文字の定義を取得する"""
         try:
-            ws = self.sheet.worksheet("マスタ設定")
+            ws = self.sheet.worksheet("MAP")
             records = ws.get_all_records()
             map_data = {}
             for row in records:
-                # 「カテゴリ」が「マップ」の行を抽出します
-                if str(row.get("カテゴリ", "")).strip() == "マップ":
-                    map_name = str(row.get("FLG名", "")).strip()
-                    # 備考欄（または配点欄）に絵文字🌍を入れる想定です
-                    emoji = str(row.get("備考", "")).strip()
-                    if map_name and emoji:
-                        map_data[map_name] = emoji
+                map_name = str(row.get("マップ名", "")).strip()
+                emoji = str(row.get("絵文字", "")).strip()
+                if map_name and emoji:
+                    map_data[map_name] = emoji
             return map_data
         except Exception as e:
-            print(f"[ERROR] マップ設定の取得に失敗しました: {e}")
+            print(f"[ERROR] MAPシートの取得に失敗しました: {e}")
             return {}
 
-    def get_master_config(self) -> list:
-        """マスタ設定シートからスキル定義を取得する"""
+    def get_master_flgs(self) -> list:
+        """マスタ設定シートからアンケート(スキル)用のFLG名と配点を取得する"""
         try:
-            ws = self.sheet.worksheet("マスタ設定")
-            records = ws.get_all_records()
-            # 「カテゴリ」が「スキル」の行だけを抽出
-            return [row for row in records if str(row.get("カテゴリ", "")).strip() == "スキル"]
+            config_ws = self.sheet.worksheet("マスタ設定")
+            configs = config_ws.get_all_records()
+            # FLG名が存在し、カテゴリが「スキル」のもののみ抽出
+            return [{
+                "flg_name": str(row.get("FLG名", "")),
+                "score": int(row.get("現在の配点", 0)),
+                "description": str(row.get("備考", "説明なし"))
+            } for row in configs if row.get("FLG名") and str(row.get("カテゴリ", "")) == "スキル"]
         except Exception as e:
-            print(f"[ERROR] マスタ設定の取得に失敗しました: {e}")
+            print(f"[ERROR] マスター設定の取得失敗: {e}")
             return []
 
-    def register_or_update_player(self, discord_id: int, player_name: str, skill_data: dict) -> bool:
+    def get_player_scores(self, discord_ids: list) -> dict:
         """
-        プレイヤーの新規登録（オートインクリメント採番）、または既存データの更新を行う。
-        API呼び出し回数を減らすため、行全体の一括更新(update)を使用するプロ仕様。
+        指定されたDiscord IDリストのプレイヤーの総合スコアを取得する。
+        戻り値: { 123456: {"name": "PlayerA", "score": 8}, 789012: None } 
+        ※未登録の人は None が入る
         """
         try:
             players_ws = self.sheet.worksheet("プレイヤーデータ")
             all_players = players_ws.get_all_records()
+            
+            # 配点を取得して計算用に辞書化 {"FLG_内政": 3, "FLG_軍事": 2}
+            flgs = self.get_master_flgs()
+            weight_map = {item["flg_name"]: item["score"] for item in flgs}
+            
+            player_scores = {}
+            for p_id in discord_ids:
+                str_id = str(p_id)
+                # 該当プレイヤーの行を探す
+                player_row = next((p for p in all_players if str(p.get("Discord_ID")) == str_id), None)
+                
+                if player_row:
+                    score = 0
+                    # プレイヤーが持っている「1」のフラグと配点を掛け合わせて合算
+                    for col_name, val in player_row.items():
+                        if col_name in weight_map:
+                            try:
+                                score += int(val) * weight_map[col_name]
+                            except ValueError:
+                                pass
+                    player_scores[p_id] = {
+                        "name": player_row.get("プレイヤー名", f"ID: {str_id}"),
+                        "score": score
+                    }
+                else:
+                    # スプレッドシートに存在しない（未登録）
+                    player_scores[p_id] = None
+                    
+            return player_scores
+        except Exception as e:
+            print(f"[ERROR] プレイヤースコアの読み込み失敗: {e}")
+            raise e
+
+    def register_or_update_player(self, discord_id: int, player_name: str, active_flgs: list) -> bool:
+        """
+        プレイヤーデータをスプレッドシートに新規登録、または既存のアンケート回答を上書き更新する。
+        active_flgs: プレイヤーが選択したFLG名のリスト (例: ["FLG_内政", "FLG_戦争"])
+        """
+        try:
+            players_ws = self.sheet.worksheet("プレイヤーデータ")
+            headers = players_ws.row_values(1)
+            
+            if "Discord_ID" not in headers or "プレイヤー名" not in headers:
+                print("[ERROR] プレイヤーデータシートの1行目に 'Discord_ID' または 'プレイヤー名' が見つかりません。")
+                return False
+
+            all_players = players_ws.get_all_records()
             str_id = str(discord_id)
             
+            # CivNo（連番）の決定と既存行の特定
             row_idx = None
             existing_civ_no = 0
+            max_civ_no = 0
             
-            # 既存プレイヤーの検索
             for idx, p in enumerate(all_players, start=2):
+                val = p.get("CivNO", p.get("CivNo", 0))
+                c_no = int(val) if str(val).isdigit() else 0
+                if c_no > max_civ_no:
+                    max_civ_no = c_no
+                    
                 if str(p.get("Discord_ID")) == str_id:
                     row_idx = idx
-                    val = p.get("CivNo", 0)
-                    existing_civ_no = int(val) if str(val).isdigit() else 0
-                    break
-                    
-            # CivNo 自動採番ロジック
+                    existing_civ_no = c_no
+
+            target_civ_no = existing_civ_no if row_idx else max_civ_no + 1
+
+            # ヘッダーの並びに合わせて書き込むデータ行(リスト)を作成
+            row_data = []
+            for h in headers:
+                if h in ["CivNO", "CivNo"]:
+                    row_data.append(target_civ_no)
+                elif h == "Discord_ID":
+                    row_data.append(str_id)
+                elif h == "プレイヤー名":
+                    row_data.append(player_name)
+                elif h in ["WIN", "LOSE", "WinRate", "総プレイ数"]:
+                    # 既存行があればそのままの数値を引き継ぎ、新規なら0にする
+                    if row_idx:
+                        row_data.append(all_players[row_idx - 2].get(h, 0))
+                    else:
+                        row_data.append(0)
+                elif h in active_flgs:
+                    row_data.append(1)  # 今回選択されたスキルは 1
+                else:
+                    row_data.append(0)  # 選択されなかったスキル、その他不明な列は 0
+
+            # スプレッドシートへ書き込み
             if row_idx:
-                target_civ_no = existing_civ_no # 既存更新
-            else:
-                # 新規登録時は最大値を探して+1
-                max_civ_no = max([int(p.get("CivNo", 0)) for p in all_players if str(p.get("CivNo", 0)).isdigit()], default=0)
-                target_civ_no = max_civ_no + 1
-
-            # マスタ設定の順序に合わせてフラグの配列を構築
-            master_config = self.get_master_config()
-            flags = [skill_data.get(m["FLG名"], 0) for m in master_config]
-
-            # 書き込み用配列（固定ヘッダー分 + 変動フラグ分）
-            row_data = [
-                target_civ_no, 
-                str_id, 
-                player_name, 
-                0, 0, 0, 0  # WIN, LOSE, WinRate, 総プレイ数の初期値
-            ] + flags
-
-            if row_idx:
-                # 既存データの上書き (A列からデータの長さ分)
                 end_col = gspread.utils.rowcol_to_a1(row_idx, len(row_data))
                 players_ws.update(f"A{row_idx}:{end_col}", [row_data])
+                print(f"[SUCCESS] プレイヤーデータを更新しました: {player_name}")
             else:
-                # 新規追加
                 players_ws.append_row(row_data)
+                print(f"[SUCCESS] プレイヤーデータを新規登録しました: {player_name}")
                 
             return True
         except Exception as e:
-            print(f"[ERROR] プレイヤーデータの保存に失敗しました: {e}")
-            return False
-
-    def remove_player(self, discord_id: int) -> bool:
-        """指定したDiscord IDのプレイヤーをスプレッドシートから物理削除する"""
-        try:
-            players_ws = self.sheet.worksheet("プレイヤーデータ")
-            all_players = players_ws.get_all_records()
-            str_id = str(discord_id)
-            
-            for idx, p in enumerate(all_players, start=2):
-                if str(p.get("Discord_ID")) == str_id:
-                    players_ws.delete_rows(idx)
-                    return True
-            return False
-        except Exception as e:
-            print(f"[ERROR] プレイヤーの削除に失敗しました: {e}")
+            print(f"[ERROR] スプレッドシートへの登録に失敗しました: {e}")
             return False
