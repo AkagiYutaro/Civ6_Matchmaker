@@ -19,6 +19,14 @@ except ImportError:
     print("[WARNING] utils.server_watcher が見つかりません。")
     def start_server_watcher(): pass
 
+# utils/sheet_manager.py のインポート（追加）
+try:
+    from utils.sheet_manager import SheetManager
+except ImportError:
+    print("[WARNING] utils.sheet_manager が見つかりません。")
+    SheetManager = None
+
+
 # ==========================================
 # 2. メインBOTクラス定義
 # ==========================================
@@ -28,6 +36,15 @@ class MatchmakerBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         # プロ仕様：print文の代わりに強力なロガーを使用
         self.logger = logging.getLogger('discord')
+        
+        # 👇 【修正箇所】スプレッドシートマネージャーをBotに持たせる処理を追加
+        if SheetManager:
+            self.sheet_manager = SheetManager(
+                spreadsheet_key=os.getenv("SPREADSHEET_KEY"),
+                creds_file="credentials.json"
+            )
+        else:
+            self.sheet_manager = None
 
     async def setup_hook(self):
         self.logger.info("=== setup_hookを開始します (Cogsの読み込みとコマンド同期) ===")
@@ -39,13 +56,17 @@ class MatchmakerBot(commands.Bot):
                 await self.load_extension(extension)
                 self.logger.info(f"[SUCCESS] 拡張機能 '{extension}' を正常にロードしました。")
             except Exception as e:
-                # エラーが起きた場所と理由を詳細にログ出力 (exc_info=True)
+                # エラーが起きた場所と理由を詳細にログ出力
                 self.logger.error(f"[ERROR] 拡張機能 '{extension}' のロードに失敗: {e}", exc_info=True)
 
         # 2. スラッシュコマンドの同期
         try:
             self.logger.info("[INFO] スラッシュコマンドの同期を開始します...")
             
+            # BOT内部で認識中のコマンド数確認
+            local_cmds = self.tree.get_commands()
+            self.logger.info(f"[DEBUG] BOT内部で認識中のコマンド数: {len(local_cmds)}")
+
             # 古いコマンドのキャッシュを一度完全にクリア
             self.tree.clear_commands(guild=None)
             
@@ -71,14 +92,13 @@ if __name__ == "__main__":
     # バックグラウンドWebサーバー起動
     start_server_watcher()
     
-    # Discord.pyが提供するプロ仕様のロギング設定を有効化（バッファリングを防ぎ即座に出力）
+    # Discord.pyが提供するプロ仕様のロギング設定を有効化
     discord.utils.setup_logging(level=logging.INFO)
     
     bot = MatchmakerBot()
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     
     if TOKEN:
-        # log_handler=None を指定し、重複するログ出力を防止
         bot.run(TOKEN, log_handler=None)
     else:
         logging.critical("[CRITICAL ERROR] DISCORD_BOT_TOKEN が環境変数に設定されていません。")
