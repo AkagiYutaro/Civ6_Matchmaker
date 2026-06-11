@@ -68,7 +68,7 @@ class MatchmakerBot(commands.Bot):
             self.logger.info(f"[DEBUG] BOT内部で認識中のコマンド数: {len(local_cmds)}")
 
             # 古いコマンドのキャッシュを一度完全にクリア
-            self.tree.clear_commands(guild=None)
+            # self.tree.clear_commands(guild=None)
             
             # 再登録（同期）の実行
             synced = await self.tree.sync()
