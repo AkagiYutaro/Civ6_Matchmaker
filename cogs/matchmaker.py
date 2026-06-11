@@ -276,10 +276,10 @@ class RegistrationFormView(discord.ui.View):
         
         player_name = interaction.user.display_name
         try:
-            self.sheet_manager.register_player(
+            self.sheet_manager.register_or_update_player(
                 discord_id=interaction.user.id,
-                name=player_name,
-                skill_flgs=selected_flgs
+                player_name=player_name,
+                active_flgs=selected_flgs
             )
             success = True
         except Exception as e:
@@ -287,7 +287,7 @@ class RegistrationFormView(discord.ui.View):
             success = False
 
         if success:
-            total_score = sum(int(item.get("現在の配点", 0)) for item in self.flg_list if item.get("FLG名") in selected_flgs)
+            total_score = sum(int(item.get("score", 0)) for item in self.flg_list if item.get("flg_name") in selected_flgs)
             selected_names = [f"・{f.replace('FLG_', '')}" for f in selected_flgs]
             selected_str = "\n".join(selected_names) if selected_names else "・なし（初期スコア）"
 
@@ -320,10 +320,13 @@ class RegisterChannelView(discord.ui.View):
             return
 
         if players_info.get(interaction.user.id) is not None:
-            await interaction.followup.send("⚠️ **あなたはすでに登録されています。**\n内容の上書きは直接管理者へお伝えください。", ephemeral=True)
+            await interaction.followup.send(
+                "⚠️ **あなたはすでに登録されています。**\n追加回答や内容の上書き修正を行いたい場合は、管理者に直接お伝えください。", 
+                ephemeral=True
+            )
             return
         
-        flg_list = self.sheet_manager.get_master_config()
+        flg_list = self.sheet_manager.get_master_flgs()
         if not flg_list:
             await interaction.followup.send("⚠️ スプレッドシートからマスタ設定の取得に失敗しました。", ephemeral=True)
             return
@@ -345,13 +348,23 @@ class MatchmakerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # ==========================================
+    # 6. スラッシュコマンド
+    # ==========================================
+
+    # ==========================================
+    # 6.1. (/civ_match) ロールメンション指定オプション付き
+    # ==========================================
     @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とマップ投票、チーム分けを開始します。")
-    async def civ_match(self, interaction: discord.Interaction):
+    @app_commands.describe(role="募集時にメンションを送信したいロールを指定します (省略時はメンションなし)")
+    async def civ_match(self, interaction: discord.Interaction, role: discord.Role = None):
         host = interaction.user
 
-        # メンションしたいロールID
-        ROLE_ID = os.getenv("MENTION_ROLE_ID", "123456789012345678")
-        mention_str = f"<@&{ROLE_ID}>" if str(ROLE_ID).isdigit() else "@everyone"
+        # メンション文字列の作成 (ロールが指定されていればメンションし、ない場合は空文字)
+        if role:
+            mention_str = f"{role.mention}\n\n"
+        else:
+            mention_str = ""
 
         # MAP_EMOJISの動的取得（失敗時はデフォルトを使用）
         try:
@@ -377,7 +390,9 @@ class MatchmakerCog(commands.Cog):
         embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
         
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager, map_emojis=map_emojis)
-        await interaction.response.send_message(content=f"{mention_str}", embed=embed, view=view)
+        
+        # メッセージ送信（ロールが指定されている場合のみ、本文にメンションを付けます）
+        await interaction.response.send_message(content=mention_str if mention_str else None, embed=embed, view=view)
 
         sent_msg = await interaction.original_response()
         
@@ -387,13 +402,15 @@ class MatchmakerCog(commands.Cog):
             except Exception:
                 pass
 
-    @app_commands.command(name="civ_setup_register", description="【管理者専用】プレイヤー用の自己申告スキル登録パネルを設置します。")
+    # ==========================================
+    # 6.2. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
+    # ==========================================
+    @app_commands.command(name="civ_setup_register", description="【管理者専用】プレイヤー用の登録パネルを設置します。")
     @app_commands.default_permissions(administrator=True)
     async def civ_setup_register(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="⚔️ Civ6 マルチスキルアンケート ⚔️",
+            title="⚔️ Civ6 プレイヤー登録 ⚔️",
             description="Civ6マルチサーバーへようこそ！\n"
-                        "対戦時の**チーム戦力を均等にして、全員が最高に面白い試合**を行えるようにするため、"
                         "プレイヤー全員にスキル登録をお願いしています。\n\n"
                         "以下のボタンからアンケートに回答して登録を済ませてください！\n"
                         "※未登録のプレイヤーは、募集時の「参加ボタン」が押せなくなります。",
