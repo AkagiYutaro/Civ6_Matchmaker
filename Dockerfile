@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # BOTを起動
-CMD ["python", "Civ6_Matchmaker.py"]
+CMD ["python", "main.py"]
