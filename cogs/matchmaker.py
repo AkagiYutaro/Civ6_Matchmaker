@@ -5,10 +5,12 @@ import itertools
 import random
 import os
 
+# 分離したマップ投票モジュールをインポート
+from cogs.map_voting import MapVoteView
+
 # ==========================================
 # 1. 定数・設定
 # ==========================================
-# 万が一シートから取得できなかった場合の安全装置
 DEFAULT_MAP_EMOJIS = {
     "パンゲア": "🌍",
     "大陸": "🗺️",
@@ -21,9 +23,6 @@ DEFAULT_MAP_EMOJIS = {
 # 2. ロジック・アルゴリズム
 # ==========================================
 def balance_teams(players_info):
-    """
-    参加プレイヤーを2チームに分け、チームの合計スコア差が最小になる組み合わせ（全探索）を返す。
-    """
     p_ids = list(players_info.keys())
     n = len(p_ids)
     half = n // 2
@@ -32,7 +31,6 @@ def balance_teams(players_info):
     best_team_a = []
     best_team_b = []
     
-    # 全組み合わせの列挙 (N/2 人を選ぶ)
     for team_a_ids in itertools.combinations(p_ids, half):
         team_a_ids = list(team_a_ids)
         team_b_ids = [p for p in p_ids if p not in team_a_ids]
@@ -73,6 +71,8 @@ class RemovePlayerSelect(discord.ui.Select):
         p_id = int(self.values[0])
         if p_id in self.parent_view.participants:
             removed_name = self.parent_view.participants.pop(p_id)
+            if p_id in self.parent_view.map_votes:
+                del self.parent_view.map_votes[p_id]
             await self.parent_view.update_embed(original_message=self.original_message)
             await interaction.response.send_message(f"✅ {removed_name} を今回の参加者リストから除外しました。", ephemeral=True)
         else:
@@ -83,33 +83,6 @@ class RemovePlayerView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(RemovePlayerSelect(parent_view, original_message))
 
-class MapVoteSelect(discord.ui.Select):
-    def __init__(self, map_emojis: dict, parent_view):
-        self.parent_view = parent_view
-        options = []
-        for name, emoji in map_emojis.items():
-            options.append(discord.SelectOption(label=name, emoji=emoji, value=name))
-        
-        super().__init__(
-            placeholder="🗺️ プレイしたいマップを選択...",
-            min_values=1,
-            max_values=1,
-            options=options,
-            custom_id="civ_map_vote"
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        selected_map = self.values[0]
-        # ユーザーの投票を親View(MatchmakerView)に記録
-        self.parent_view.map_votes[interaction.user.id] = selected_map
-        # ドロップダウンを消して完了メッセージに切り替える（スマートなUX）
-        await interaction.response.edit_message(content=f"✅ **{selected_map}** に投票完了しました！\n(投票内容はホストがチーム分けを実行するまで秘密です)", view=None)
-
-class MapVoteView(discord.ui.View):
-    """参加ボタンを押した人だけに表示するマップ投票用のView"""
-    def __init__(self, map_emojis: dict, parent_view):
-        super().__init__(timeout=300) # 5分でタイムアウト
-        self.add_item(MapVoteSelect(map_emojis, parent_view))
 
 class MatchmakerView(discord.ui.View):
     def __init__(self, host: discord.Member, sheet_manager, map_emojis: dict):
@@ -118,25 +91,41 @@ class MatchmakerView(discord.ui.View):
         self.sheet_manager = sheet_manager
         self.map_emojis = map_emojis
         self.participants = {host.id: host.display_name}
-        self.map_votes = {} # 誰が何に投票したかを記録する辞書
+        self.map_votes = {}
+        self.message = None 
+
+    async def register_vote(self, interaction: discord.Interaction, user_id: int, map_name: str):
+        """外部モジュール(map_voting.py)から投票データを受け取る専用メソッド"""
+        self.map_votes[user_id] = map_name
         
+        if self.message:
+            await self.update_embed(original_message=self.message)
+
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
         if interaction:
             embed = interaction.message.embeds[0]
+            target_msg = interaction.message
         elif original_message:
             embed = original_message.embeds[0]
+            target_msg = original_message
         else:
             return
             
         member_list_str = "\n".join([f"・<@{p_id}>" for p_id in self.participants.keys()]) if self.participants else "現在参加者なし"
         embed.set_field_at(0, name=f"参加者一覧 ({len(self.participants)}名)", value=member_list_str, inline=False)
         
+        vote_count = len([uid for uid in self.map_votes.keys() if uid in self.participants])
+        vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
+                     "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
+                     f"*(現在の投票完了人数: **{vote_count} / {len(self.participants)}名**)*"
+        embed.set_field_at(1, name="【マップ投票 (シークレット)】", value=vote_guide, inline=False)
+        
         if interaction:
             await interaction.response.edit_message(embed=embed, view=self)
         elif original_message:
-            await original_message.edit(embed=embed, view=self)
+            await target_msg.edit(embed=embed, view=self)
 
-    @discord.ui.button(label="参加する", style=discord.ButtonStyle.success, custom_id="civ_join_btn", row=0)
+    @discord.ui.button(label="参加 / 投票する", style=discord.ButtonStyle.success, custom_id="civ_join_btn", row=0)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         await interaction.response.defer(ephemeral=True)
@@ -146,7 +135,7 @@ class MatchmakerView(discord.ui.View):
             if players_info.get(user.id) is None:
                 await interaction.followup.send(
                     "⚠️ **チームの戦力バランスを計算するため、事前にアンケートへの回答が必要です。**\n"
-                    "管理者が設置したパネルからアンケートに答えてから、再度参加ボタンを押してください！",
+                    "管理者が設置したパネルからアンケートに答えてから、再度ボタンを押してください！",
                     ephemeral=True
                 )
                 return
@@ -154,12 +143,14 @@ class MatchmakerView(discord.ui.View):
             if user.id not in self.participants:
                 self.participants[user.id] = user.display_name
                 await self.update_embed(original_message=interaction.message)
-                msg = "✅ 参加登録しました！\n続けて、下のメニューから希望するマップに投票してください。"
+                msg = "✅ 参加登録しました！\n" \
+                      "下のメニューからプレイしたいマップを選択し、**【🗳️ 投票】**ボタンを押してください。"
             else:
-                msg = "✅ 既に登録されています。\nマップ投票を変更したい場合は、下から選び直してください。"
+                msg = "✅ あなたは既に参加メンバーに登録されています。\n" \
+                      "マップの投票先を設定・変更したい場合は、以下から選び直して**【🗳️ 投票】**ボタンを押してください。"
 
-            # 参加ボタンを押した人だけに、ephemeralでマップ投票用の画面を表示
-            vote_view = MapVoteView(self.map_emojis, parent_view=self)
+            # 分離したモジュールからViewを呼び出す
+            vote_view = MapVoteView(self.map_emojis, main_matchmaker_view=self)
             await interaction.followup.send(content=msg, view=vote_view, ephemeral=True)
 
         except Exception as e:
@@ -168,8 +159,15 @@ class MatchmakerView(discord.ui.View):
     @discord.ui.button(label="辞退する", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn", row=0)
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
+        
+        if user.id == self.host.id:
+            await interaction.response.send_message("⚠️ ホスト（募集者）は参加を辞退することはできません。キャンセルしたい場合は「募集をキャンセル」を押してください。", ephemeral=True)
+            return
+
         if user.id in self.participants:
             del self.participants[user.id]
+            if user.id in self.map_votes:
+                del self.map_votes[user.id]
             await self.update_embed(interaction=interaction)
         else:
             await interaction.response.send_message("まだ参加していません！", ephemeral=True)
@@ -199,25 +197,19 @@ class MatchmakerView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # マップ投票の集計 (シークレット投票の集計)
-        original_msg = interaction.message
-        
         map_vote_counts = {name: 0 for name in self.map_emojis.keys()}
         for user_id, map_name in self.map_votes.items():
-            # 参加を辞退した人（Participantsにいない人）の票は無効にする
             if user_id in self.participants and map_name in map_vote_counts:
                 map_vote_counts[map_name] += 1
 
         if map_vote_counts and max(map_vote_counts.values()) > 0:
             max_vote_val = max(map_vote_counts.values())
             voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
-            # 同票の場合はランダムに選ばれるようにする
             chosen_map = random.choice(voted_maps)
             map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム等）**"
+            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム）**"
 
-        # チーム分け実行
         players_info = self.sheet_manager.get_player_scores(list(self.participants.keys()))
         for p_id, p_data in list(players_info.items()):
             if p_data is None:
@@ -241,7 +233,7 @@ class MatchmakerView(discord.ui.View):
 
         for child in self.children:
             child.disabled = True
-        await interaction.followup.edit_message(message_id=original_msg.id, view=self)
+        await interaction.followup.edit_message(message_id=interaction.message.id, view=self)
         await interaction.followup.send(content=f"ホスト <@{self.host.id}> がチームを確定しました！", embed=result_embed)
 
     @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
@@ -262,7 +254,6 @@ class SkillDropdown(discord.ui.Select):
         max_vals = len(flg_list) if len(flg_list) > 0 else 1
         options = []
         for item in flg_list:
-            # 修正: '備考', 'FLG名', '現在の配点' ではなく、sheet_managerが返す 'description', 'flg_name', 'score' を使用します
             short_desc = str(item.get("description", ""))
             if len(short_desc) > 50:
                 short_desc = short_desc[:47] + "..."
@@ -271,7 +262,6 @@ class SkillDropdown(discord.ui.Select):
             label_text = flg_name.replace('FLG_', '')
             score = item.get("score", 0)
             
-            # 空文字によるエラー(Invalid Form Body)を防ぐ安全対策
             if not label_text:
                 label_text = "未設定"
             if not flg_name:
@@ -388,25 +378,16 @@ class MatchmakerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ==========================================
-    # 6. スラッシュコマンド
-    # ==========================================
-
-    # ==========================================
-    # 6.1. (/civ_match) ロールメンション指定オプション付き
-    # ==========================================
     @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とマップ投票、チーム分けを開始します。")
     @app_commands.describe(role="募集時にメンションを送信したいロールを指定します (省略時はメンションなし)")
     async def civ_match(self, interaction: discord.Interaction, role: discord.Role = None):
         host = interaction.user
 
-        # メンション文字列の作成 (ロールが指定されていればメンションし、ない場合は空文字)
         if role:
             mention_str = f"{role.mention}\n\n"
         else:
             mention_str = ""
 
-        # MAP_EMOJISの動的取得（失敗時はデフォルトを使用）
         try:
             if hasattr(self.bot.sheet_manager, "get_map_emojis"):
                 map_emojis = self.bot.sheet_manager.get_map_emojis()
@@ -420,23 +401,31 @@ class MatchmakerCog(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
             description=f"ホスト <@{host.id}> が募集を開始しました！\n"
-                        "以下のボタンから「参加」または「辞退」を表明してください。",
+                        "以下のボタンから参加表明・マップ投票を行ってください。",
             color=discord.Color.blue()
         )
         embed.add_field(name="参加者一覧", value=f"・<@{host.id}>", inline=False)
         
-        # 投票ガイドの文言を新しいフローに合わせて変更
-        vote_guide = "「参加する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n*(※誰がどこに投票したかは完全に秘密です)*"
+        vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
+                     "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
+                     "*(現在の投票完了人数: **0 / 1名**)*"
         embed.add_field(name="【マップ投票 (シークレット)】", value=vote_guide, inline=False)
         
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager, map_emojis=map_emojis)
         
-        # メッセージ送信（ロールが指定されている場合のみ、本文にメンションを付けます）
         await interaction.response.send_message(content=mention_str if mention_str else None, embed=embed, view=view)
+        
+        view.message = await interaction.original_response()
 
-    # ==========================================
-    # 6.2. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
-    # ==========================================
+        # ホストにも自動的に投票メニューをポップアップ
+        host_vote_view = MapVoteView(map_emojis, main_matchmaker_view=view)
+        await interaction.followup.send(
+            content=f"✅ <@{host.id}> さん、募集を開始しました！\n"
+                    "続けて、下のメニューからプレイしたいマップに投票してください。",
+            view=host_vote_view,
+            ephemeral=True
+        )
+
     @app_commands.command(name="civ_setup_register", description="【管理者専用】プレイヤー用の登録パネルを設置します。")
     @app_commands.default_permissions(administrator=True)
     async def civ_setup_register(self, interaction: discord.Interaction):
@@ -459,11 +448,6 @@ class MatchmakerCog(commands.Cog):
         view = RegisterChannelView(self.bot.sheet_manager)
         await interaction.response.send_message(embed=embed, view=view)
 
-# ==========================================
-# 6. Cogのセットアップ関数
-# ==========================================
 async def setup(bot: commands.Bot):
-    # Cog を BOT に登録
     await bot.add_cog(MatchmakerCog(bot))
-    # BOT再起動後もアンケート登録パネル(ボタン)が反応するようにリスナーを登録
     bot.add_view(RegisterChannelView(bot.sheet_manager))
