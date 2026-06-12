@@ -118,7 +118,7 @@ class MatchmakerView(discord.ui.View):
         vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
                      "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
                      f"*(現在の投票完了人数: **{vote_count} / {len(self.participants)}名**)*"
-        embed.set_field_at(1, name="【マップ投票 (シークレット)】", value=vote_guide, inline=False)
+        embed.set_field_at(1, name="【マップ投票】", value=vote_guide, inline=False)
         
         if interaction:
             await interaction.response.edit_message(embed=embed, view=self)
@@ -134,8 +134,8 @@ class MatchmakerView(discord.ui.View):
             players_info = self.sheet_manager.get_player_scores([user.id])
             if players_info.get(user.id) is None:
                 await interaction.followup.send(
-                    "⚠️ **チームの戦力バランスを計算するため、事前にアンケートへの回答が必要です。**\n"
-                    "管理者が設置したパネルからアンケートに答えてから、再度ボタンを押してください！",
+                    "⚠️ **チームの戦力バランスを計算するため、事前にプレイヤー登録が必要です。**\n"
+                    "管理者が設置したパネルから登録を行い、再度ボタンを押してください！",
                     ephemeral=True
                 )
                 return
@@ -229,7 +229,7 @@ class MatchmakerView(discord.ui.View):
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="楽しい対戦になりますように！GLHF!")
+        result_embed.set_footer(text="GLHF!")
 
         for child in self.children:
             child.disabled = True
@@ -277,7 +277,7 @@ class SkillDropdown(discord.ui.Select):
             options.append(discord.SelectOption(label="設定されたFLGがありません", value="none"))
 
         super().__init__(
-            placeholder="自分ができる能力にチェックを入れてください（複数選択可）",
+            placeholder="自分ができる項目にチェックを入れてください（複数選択可）",
             min_values=0,
             max_values=max_vals,
             options=options,
@@ -295,7 +295,7 @@ class RegistrationFormView(discord.ui.View):
         self.dropdown = SkillDropdown(flg_list)
         self.add_item(self.dropdown)
 
-    @discord.ui.button(label="この内容でスキルを登録する", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="この内容で登録する", style=discord.ButtonStyle.success, row=1)
     async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         selected_flgs = self.dropdown.values
         if "none" in selected_flgs:
@@ -313,7 +313,7 @@ class RegistrationFormView(discord.ui.View):
             )
             success = True
         except Exception as e:
-            print(f"[ERROR] スキル登録失敗: {e}")
+            print(f"[ERROR] 登録失敗: {e}")
             success = False
 
         if success:
@@ -322,7 +322,7 @@ class RegistrationFormView(discord.ui.View):
             selected_str = "\n".join(selected_names) if selected_names else "・なし（初期スコア）"
 
             embed = discord.Embed(
-                title="✅ スキル登録が完了しました！",
+                title="✅ 登録が完了しました！",
                 description="情報がスプレッドシートに連携されました。\nこれでチーム分けにいつでも参加できます！",
                 color=discord.Color.green()
             )
@@ -339,7 +339,7 @@ class RegisterChannelView(discord.ui.View):
         super().__init__(timeout=None)
         self.sheet_manager = sheet_manager
 
-    @discord.ui.button(label="アンケートに回答する", style=discord.ButtonStyle.primary, custom_id="civ_start_register_btn")
+    @discord.ui.button(label="登録する", style=discord.ButtonStyle.primary, custom_id="civ_start_register_btn")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         
@@ -401,7 +401,7 @@ class MatchmakerCog(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
             description=f"ホスト <@{host.id}> が募集を開始しました！\n"
-                        "以下のボタンから参加表明・マップ投票を行ってください。",
+                        "以下のボタンから参加・マップ投票を行ってください。",
             color=discord.Color.blue()
         )
         embed.add_field(name="参加者一覧", value=f"・<@{host.id}>", inline=False)
@@ -409,7 +409,7 @@ class MatchmakerCog(commands.Cog):
         vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
                      "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
                      "*(現在の投票完了人数: **0 / 1名**)*"
-        embed.add_field(name="【マップ投票 (シークレット)】", value=vote_guide, inline=False)
+        embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
         
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager, map_emojis=map_emojis)
         
@@ -432,14 +432,14 @@ class MatchmakerCog(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Civ6 プレイヤー登録 ⚔️",
             description="Civ6マルチサーバーへようこそ！\n"
-                        "プレイヤー全員にスキル登録をお願いしています。\n\n"
-                        "以下のボタンからアンケートに回答して登録を済ませてください！\n"
+                        "プレイヤー全員に登録をお願いしています。\n\n"
+                        "以下のボタンから回答して登録を済ませてください！\n"
                         "※未登録のプレイヤーは、募集時の「参加ボタン」が押せなくなります。",
             color=discord.Color.dark_purple()
         )
         embed.add_field(
             name="📝 登録・更新方法",
-            value="1. 下の「アンケートに回答する」ボタンを押す。\n"
+            value="1. 下の「登録する」ボタンを押す。\n"
                   "2. 自分専用のドロップダウンから達成可能な能力項目を選択（複数可）。\n"
                   "3. 送信ボタンを押して「登録完了」と表示されればOKです！",
             inline=False
