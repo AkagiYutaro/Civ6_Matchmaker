@@ -120,8 +120,6 @@ class MatchmakerView(discord.ui.View):
         self.participants = {host.id: host.display_name}
         self.map_votes = {} # 誰が何に投票したかを記録する辞書
         
-        # 変更点: 親パネルに常設していたマップ投票ドロップダウンを削除しました
-
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
         if interaction:
             embed = interaction.message.embeds[0]
@@ -160,7 +158,7 @@ class MatchmakerView(discord.ui.View):
             else:
                 msg = "✅ 既に登録されています。\nマップ投票を変更したい場合は、下から選び直してください。"
 
-            # 【追加】参加ボタンを押した人だけに、ephemeralでマップ投票用の画面を表示
+            # 参加ボタンを押した人だけに、ephemeralでマップ投票用の画面を表示
             vote_view = MapVoteView(self.map_emojis, parent_view=self)
             await interaction.followup.send(content=msg, view=vote_view, ephemeral=True)
 
@@ -264,16 +262,24 @@ class SkillDropdown(discord.ui.Select):
         max_vals = len(flg_list) if len(flg_list) > 0 else 1
         options = []
         for item in flg_list:
-            short_desc = str(item.get("備考", ""))
+            # 修正: '備考', 'FLG名', '現在の配点' ではなく、sheet_managerが返す 'description', 'flg_name', 'score' を使用します
+            short_desc = str(item.get("description", ""))
             if len(short_desc) > 50:
                 short_desc = short_desc[:47] + "..."
             
-            label_text = str(item.get("FLG名", "")).replace('FLG_', '')
-            score = item.get("現在の配点", 0)
+            flg_name = str(item.get("flg_name", ""))
+            label_text = flg_name.replace('FLG_', '')
+            score = item.get("score", 0)
+            
+            # 空文字によるエラー(Invalid Form Body)を防ぐ安全対策
+            if not label_text:
+                label_text = "未設定"
+            if not flg_name:
+                flg_name = "none"
             
             options.append(discord.SelectOption(
                 label=label_text,
-                value=str(item.get("FLG名", "")),
+                value=flg_name,
                 description=f"配点: {score}点 | {short_desc}"
             ))
 
