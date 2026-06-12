@@ -26,7 +26,7 @@ class MapVoteSelect(discord.ui.Select):
         
         await interaction.response.edit_message(
             content=f"🗺️ **{selected_map}** を選択中...\n"
-                    "下の【🗳️ 投票を確定する】ボタンを押すと投票が完了します！",
+                    "下の【🗳️ 投票】ボタンを押すと投票が完了します！",
             view=self.parent_view
         )
 
@@ -35,9 +35,9 @@ class ConfirmVoteButton(discord.ui.Button):
     """仮選択したマップを正式に投票確定させるためのアイコンボタン"""
     def __init__(self, parent_view):
         super().__init__(
-            label="投票を確定する",
+            label="投票",
             style=discord.ButtonStyle.success,
-            emoji="🗳️", # 投票箱のアイコン
+            emoji="🗳️", # 備考にあったアイコンの設定
             custom_id="civ_confirm_vote_btn",
             disabled=True # 最初はマップが選ばれていないので無効化
         )
@@ -51,7 +51,7 @@ class ConfirmVoteButton(discord.ui.Button):
             await interaction.response.send_message("⚠️ マップが選択されていません。", ephemeral=True)
             return
 
-        # 💡 [改善点] 直接書き換えず、本体が用意した専用メソッド経由で安全に登録（カプセル化）
+        # matchmaker.py 側の専用メソッド経由で安全に登録
         await self.parent_view.main_matchmaker_view.register_vote(
             interaction=interaction,
             user_id=user_id,
@@ -62,8 +62,8 @@ class ConfirmVoteButton(discord.ui.Button):
         for item in self.parent_view.children:
             item.disabled = True
 
-        await interaction.edit_original_response(
-            content=f"✅ **{selected_map}** への投票を確定しました！\n"
+        await interaction.response.edit_message(
+            content=f"✅ **{selected_map}** に投票しました！\n"
                     "*(現在の投票内容はチーム分けが行われるまで非公開です)*",
             view=None
         )
@@ -72,12 +72,14 @@ class ConfirmVoteButton(discord.ui.Button):
 class MapVoteView(discord.ui.View):
     """仮選択と確定ボタンをセットにした本人専用(ephemeral)の投票用UI"""
     def __init__(self, map_emojis: dict, main_matchmaker_view):
-        super().__init__(timeout=300)
+        super().__init__(timeout=300) # 5分で自動タイムアウト
         self.main_matchmaker_view = main_matchmaker_view
         self.temp_selection = None
 
+        # ドロップダウンを追加
         self.select_menu = MapVoteSelect(map_emojis, self)
         self.add_item(self.select_menu)
 
+        # 確定ボタンを追加
         self.confirm_button = ConfirmVoteButton(self)
         self.add_item(self.confirm_button)
