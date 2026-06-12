@@ -206,9 +206,9 @@ class MatchmakerView(discord.ui.View):
             max_vote_val = max(map_vote_counts.values())
             voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
             chosen_map = random.choice(voted_maps)
-            map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
+            map_result_str = f"🗺️ 本日のマップ: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム）**"
+            map_result_str = f"🗺️ 本日のマップ: **未投票（ランダム）**"
 
         players_info = self.sheet_manager.get_player_scores(list(self.participants.keys()))
         for p_id, p_data in list(players_info.items()):
@@ -229,12 +229,12 @@ class MatchmakerView(discord.ui.View):
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="⚔️ GLHF ⚔️")
+        #result_embed.set_footer(text="⚔️ GLHF ⚔️")
 
         for child in self.children:
             child.disabled = True
         await interaction.followup.edit_message(message_id=interaction.message.id, view=self)
-        await interaction.followup.send(content=f"ホスト <@{self.host.id}> がチームを確定しました", embed=result_embed)
+        await interaction.followup.send(content=f"ホスト <@{self.host.id}> が募集をクローズしました。", embed=result_embed)
 
     @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
