@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import itertools
+import random
 import os
 
 # ==========================================
@@ -82,6 +83,34 @@ class RemovePlayerView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(RemovePlayerSelect(parent_view, original_message))
 
+class MapVoteSelect(discord.ui.Select):
+    def __init__(self, map_emojis: dict, parent_view):
+        self.parent_view = parent_view
+        options = []
+        for name, emoji in map_emojis.items():
+            options.append(discord.SelectOption(label=name, emoji=emoji, value=name))
+        
+        super().__init__(
+            placeholder="🗺️ プレイしたいマップを選択...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="civ_map_vote"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_map = self.values[0]
+        # ユーザーの投票を親View(MatchmakerView)に記録
+        self.parent_view.map_votes[interaction.user.id] = selected_map
+        # ドロップダウンを消して完了メッセージに切り替える（スマートなUX）
+        await interaction.response.edit_message(content=f"✅ **{selected_map}** に投票完了しました！\n(投票内容はホストがチーム分けを実行するまで秘密です)", view=None)
+
+class MapVoteView(discord.ui.View):
+    """参加ボタンを押した人だけに表示するマップ投票用のView"""
+    def __init__(self, map_emojis: dict, parent_view):
+        super().__init__(timeout=300) # 5分でタイムアウト
+        self.add_item(MapVoteSelect(map_emojis, parent_view))
+
 class MatchmakerView(discord.ui.View):
     def __init__(self, host: discord.Member, sheet_manager, map_emojis: dict):
         super().__init__(timeout=None)
@@ -89,6 +118,9 @@ class MatchmakerView(discord.ui.View):
         self.sheet_manager = sheet_manager
         self.map_emojis = map_emojis
         self.participants = {host.id: host.display_name}
+        self.map_votes = {} # 誰が何に投票したかを記録する辞書
+        
+        # 変更点: 親パネルに常設していたマップ投票ドロップダウンを削除しました
 
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
         if interaction:
@@ -124,9 +156,14 @@ class MatchmakerView(discord.ui.View):
             if user.id not in self.participants:
                 self.participants[user.id] = user.display_name
                 await self.update_embed(original_message=interaction.message)
-                await interaction.followup.send("✅ 参加登録しました！", ephemeral=True)
+                msg = "✅ 参加登録しました！\n続けて、下のメニューから希望するマップに投票してください。"
             else:
-                await interaction.followup.send("既に登録されています！", ephemeral=True)
+                msg = "✅ 既に登録されています。\nマップ投票を変更したい場合は、下から選び直してください。"
+
+            # 【追加】参加ボタンを押した人だけに、ephemeralでマップ投票用の画面を表示
+            vote_view = MapVoteView(self.map_emojis, parent_view=self)
+            await interaction.followup.send(content=msg, view=vote_view, ephemeral=True)
+
         except Exception as e:
             await interaction.followup.send(f"❌ データベースの確認中にエラーが発生しました: {e}", ephemeral=True)
 
@@ -164,23 +201,20 @@ class MatchmakerView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # マップ投票の集計
+        # マップ投票の集計 (シークレット投票の集計)
         original_msg = interaction.message
-        channel = interaction.channel
-        msg_with_reactions = await channel.fetch_message(original_msg.id)
         
-        map_votes = {}
-        for name, emoji in self.map_emojis.items():
-            reaction = discord.utils.get(msg_with_reactions.reactions, emoji=emoji)
-            if reaction:
-                map_votes[name] = reaction.count - 1 # BOT自身の分を引く
-            else:
-                map_votes[name] = 0
+        map_vote_counts = {name: 0 for name in self.map_emojis.keys()}
+        for user_id, map_name in self.map_votes.items():
+            # 参加を辞退した人（Participantsにいない人）の票は無効にする
+            if user_id in self.participants and map_name in map_vote_counts:
+                map_vote_counts[map_name] += 1
 
-        if map_votes and max(map_votes.values()) > 0:
-            max_vote_val = max(map_votes.values())
-            voted_maps = [k for k, v in map_votes.items() if v == max_vote_val]
-            chosen_map = voted_maps[0]
+        if map_vote_counts and max(map_vote_counts.values()) > 0:
+            max_vote_val = max(map_vote_counts.values())
+            voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
+            # 同票の場合はランダムに選ばれるようにする
+            chosen_map = random.choice(voted_maps)
             map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
             map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム等）**"
@@ -380,27 +414,19 @@ class MatchmakerCog(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
             description=f"ホスト <@{host.id}> が募集を開始しました！\n"
-                        "以下のボタンから「参加」または「辞退」を表明してください。\n"
-                        "マップスタンプ（リアクション）に投票をお願いします。",
+                        "以下のボタンから「参加」または「辞退」を表明してください。",
             color=discord.Color.blue()
         )
         embed.add_field(name="参加者一覧", value=f"・<@{host.id}>", inline=False)
         
-        vote_guide = "\n".join([f"{emoji} : **{name}**" for name, emoji in map_emojis.items()])
-        embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
+        # 投票ガイドの文言を新しいフローに合わせて変更
+        vote_guide = "「参加する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n*(※誰がどこに投票したかは完全に秘密です)*"
+        embed.add_field(name="【マップ投票 (シークレット)】", value=vote_guide, inline=False)
         
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager, map_emojis=map_emojis)
         
         # メッセージ送信（ロールが指定されている場合のみ、本文にメンションを付けます）
         await interaction.response.send_message(content=mention_str if mention_str else None, embed=embed, view=view)
-
-        sent_msg = await interaction.original_response()
-        
-        for emoji in map_emojis.values():
-            try:
-                await sent_msg.add_reaction(emoji)
-            except Exception:
-                pass
 
     # ==========================================
     # 6.2. 管理者用：スキルアンケート常設コマンド (/civ_setup_register)
