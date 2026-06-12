@@ -223,18 +223,18 @@ class MatchmakerView(discord.ui.View):
         team_b_str = "\n".join([f"・<@{p_id}> (スコア:{players_info[p_id]['score']})" for p_id in team_b]) or "なし"
 
         result_embed = discord.Embed(
-            title="🎮 Civ6 チーム分け結果発表！",
+            title="🎮 Civ6 チーム分け結果",
             color=discord.Color.gold()
         )
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="GLHF!")
+        result_embed.set_footer(text="⚔️ GLHF ⚔️")
 
         for child in self.children:
             child.disabled = True
         await interaction.followup.edit_message(message_id=interaction.message.id, view=self)
-        await interaction.followup.send(content=f"ホスト <@{self.host.id}> がチームを確定しました！", embed=result_embed)
+        await interaction.followup.send(content=f"ホスト <@{self.host.id}> がチームを確定しました", embed=result_embed)
 
     @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -277,7 +277,7 @@ class SkillDropdown(discord.ui.Select):
             options.append(discord.SelectOption(label="設定されたFLGがありません", value="none"))
 
         super().__init__(
-            placeholder="自分ができる項目にチェックを入れてください（複数選択可）",
+            placeholder="自分がプレイできる項目にチェックを入れてください（複数選択可）",
             min_values=0,
             max_values=max_vals,
             options=options,
@@ -399,7 +399,7 @@ class MatchmakerCog(commands.Cog):
             map_emojis = DEFAULT_MAP_EMOJIS
 
         embed = discord.Embed(
-            title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
+            title="⚔️ Civ6 マルチプレイ募集 ⚔️",
             description=f"ホスト <@{host.id}> が募集を開始しました！\n"
                         "以下のボタンから参加・マップ投票を行ってください。",
             color=discord.Color.blue()
@@ -441,7 +441,7 @@ class MatchmakerCog(commands.Cog):
             name="📝 登録・更新方法",
             value="1. 下の「登録する」ボタンを押す。\n"
                   "2. 自分専用のドロップダウンから達成可能な能力項目を選択（複数可）。\n"
-                  "3. 送信ボタンを押して「登録完了」と表示されればOKです！",
+                  "3. 送信ボタンを押して「登録完了」と表示されればOKです",
             inline=False
         )
 
