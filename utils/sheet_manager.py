@@ -1,84 +1,179 @@
 import gspread
 from google.oauth2.service_account import Credentials
+import os
 
 # ==========================================
-# スプレッドシート管理クラス
+# データベース管理者 (SheetManager)
 # ==========================================
 class SheetManager:
-    def __init__(self, spreadsheet_key, creds_file):
-        self.scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        self.creds = Credentials.from_service_account_file(creds_file, scopes=self.scope)
-        self.client = gspread.authorize(self.creds)
-        self.sheet = self.client.open_by_key(spreadsheet_key)
+    """Google Sheets APIとの通信、プレイヤーデータの安全な読み書きを担当します。"""
+    
+    # プレイヤーデータシートの固定ヘッダー定義
+    STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "WIN", "LOSE", "WinRate", "総プレイ数"]
 
-    def get_master_config(self):
+    def __init__(self, spreadsheet_key: str, creds_file: str):
+        # Google APIのスコープ設定
+        self.scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # 鍵ファイルの存在確認 (エラーの早期発見)
+        if not os.path.exists(creds_file):
+            raise FileNotFoundError(f"[ERROR] 認証ファイル '{creds_file}' が見つかりません。")
+            
+        try:
+            self.creds = Credentials.from_service_account_file(creds_file, scopes=self.scope)
+            self.client = gspread.authorize(self.creds)
+            self.sheet = self.client.open_by_key(spreadsheet_key)
+            print("[SUCCESS] スプレッドシートへの接続に成功しました。")
+        except Exception as e:
+            print(f"[CRITICAL ERROR] スプレッドシートの認証・接続に失敗: {e}")
+            raise e
+
+    def get_map_emojis(self) -> dict:
+        """マスタ設定シートからマップ名と絵文字の定義を取得する"""
         try:
             ws = self.sheet.worksheet("マスタ設定")
-            return ws.get_all_records()
-        except:
+            records = ws.get_all_records()
+            map_data = {}
+            for row in records:
+                # 「カテゴリ」が「マップ」の行を抽出します
+                if str(row.get("カテゴリ", "")).strip() == "マップ":
+                    map_name = str(row.get("FLG名", "")).strip()
+                    # 備考欄（または配点欄）に絵文字🌍を入れる想定です
+                    emoji = str(row.get("備考", "")).strip()
+                    if map_name and emoji:
+                        map_data[map_name] = emoji
+            return map_data
+        except Exception as e:
+            print(f"[ERROR] マップ設定の取得に失敗しました: {e}")
+            return {}
+
+    def get_master_config(self) -> list:
+        """マスタ設定シートからスキル定義を取得する"""
+        try:
+            ws = self.sheet.worksheet("マスタ設定")
+            records = ws.get_all_records()
+            # 「カテゴリ」が「スキル」の行だけを抽出
+            return [row for row in records if str(row.get("カテゴリ", "")).strip() == "スキル"]
+        except Exception as e:
+            print(f"[ERROR] マスタ設定の取得に失敗しました: {e}")
             return []
 
-    def _ensure_player_sheet(self):
+    def get_player_scores(self, discord_ids: list) -> dict:
+        """
+        指定されたDiscord IDリストのプレイヤーの総合スコアを取得する。
+        ※チーム分けに必須のメソッドです。
+        """
         try:
-            ws = self.sheet.worksheet("プレイヤーデータ")
-        except:
-            ws = self.sheet.add_worksheet(title="プレイヤーデータ", rows="100", cols="20")
-        
-        master = self.get_master_config()
-        # 固定統計列 + マスタから取得したスキルFLG
-        skills = [m["FLG名"] for m in master if m.get("カテゴリ") == "スキル"]
-        headers = ["CivNO", "Discord_ID", "プレイヤー名", "WIN", "LOSE", "WinRate", "総プレイ数"] + skills
-        
-        if ws.row_values(1) != headers:
-            ws.update("A1", [headers])
-        return ws
-
-    def register_player(self, discord_id, name, skill_flgs):
-        ws = self._ensure_player_sheet()
-        all_data = ws.get_all_records()
-        master = self.get_master_config()
-        
-        # 既存プレイヤー確認
-        existing = next((r for r in all_data if str(r.get("Discord_ID")) == str(discord_id)), None)
-        
-        # 既存があればそのCivNOを再利用、なければ最大値+1
-        if existing:
-            civ_no = existing["CivNO"]
-            row_idx = all_data.index(existing) + 2
-        else:
-            civ_no = max([int(r.get("CivNO", 0)) for r in all_data], default=0) + 1
-            row_idx = len(all_data) + 2
-
-        # スキルFLGと統計データの作成
-        skills = [m["FLG名"] for m in master if m.get("カテゴリ") == "スキル"]
-        row_data = [civ_no, str(discord_id), name, 0, 0, 0, 0] # 統計は初期0
-        for s in skills:
-            row_data.append(1 if s in skill_flgs else 0)
+            players_ws = self.sheet.worksheet("プレイヤーデータ")
+            all_players = players_ws.get_all_records()
             
-        ws.update(f"A{row_idx}", [row_data])
-        return civ_no
+            # マスタ設定から配点を取得して計算用に辞書化
+            master_config = self.get_master_config()
+            weight_map = {item.get("FLG名", ""): int(item.get("現在の配点", 0)) for item in master_config}
+            
+            player_scores = {}
+            for p_id in discord_ids:
+                str_id = str(p_id)
+                player_row = next((p for p in all_players if str(p.get("Discord_ID")) == str_id), None)
+                
+                if player_row:
+                    score = 0
+                    for col_name, val in player_row.items():
+                        if col_name in weight_map:
+                            try:
+                                score += int(val) * weight_map[col_name]
+                            except ValueError:
+                                pass
+                    player_scores[p_id] = {
+                        "name": player_row.get("プレイヤー名", f"ID: {str_id}"),
+                        "score": score
+                    }
+                else:
+                    player_scores[p_id] = None
+                    
+            return player_scores
+        except Exception as e:
+            print(f"[ERROR] プレイヤースコアの読み込み失敗: {e}")
+            raise e
 
-    def get_player_scores(self, discord_ids):
-        ws = self._ensure_player_sheet()
-        master = self.get_master_config()
-        weight_map = {m["FLG名"]: int(m["現在の配点"]) for m in master if m.get("カテゴリ") == "スキル"}
-        all_data = ws.get_all_records()
-        
-        results = {}
-        for p_id in discord_ids:
-            row = next((r for r in all_data if str(r.get("Discord_ID")) == str(p_id)), None)
-            if row:
-                score = sum(int(row.get(f, 0)) * weight_map.get(f, 0) for f in weight_map if f in row)
-                results[p_id] = {"name": row["プレイヤー名"], "score": score}
+    def register_or_update_player(self, discord_id: int, player_name: str, skill_data: dict) -> bool:
+        """
+        プレイヤーの新規登録（オートインクリメント採番）、または既存データの更新を行う。
+        API呼び出し回数を減らすため、行全体の一括更新(update)を使用するプロ仕様。
+        """
+        try:
+            players_ws = self.sheet.worksheet("プレイヤーデータ")
+            all_players = players_ws.get_all_records()
+            str_id = str(discord_id)
+            
+            row_idx = None
+            existing_civ_no = 0
+            
+            # 既存プレイヤーの検索
+            for idx, p in enumerate(all_players, start=2):
+                if str(p.get("Discord_ID")) == str_id:
+                    row_idx = idx
+                    val = p.get("CivNo", 0)
+                    existing_civ_no = int(val) if str(val).isdigit() else 0
+                    break
+                    
+            # CivNo 自動採番ロジック
+            if row_idx:
+                target_civ_no = existing_civ_no # 既存更新
             else:
-                results[p_id] = None
-        return results
+                # 新規登録時は最大値を探して+1
+                max_civ_no = max([int(p.get("CivNo", 0)) for p in all_players if str(p.get("CivNo", 0)).isdigit()], default=0)
+                target_civ_no = max_civ_no + 1
+
+            # マスタ設定の順序に合わせてフラグの配列を構築
+            master_config = self.get_master_config()
+            flags = [skill_data.get(m["FLG名"], 0) for m in master_config]
+
+            # 書き込み用配列（固定ヘッダー分 + 変動フラグ分）
+            row_data = [
+                target_civ_no, 
+                str_id, 
+                player_name, 
+                0, 0, 0, 0  # WIN, LOSE, WinRate, 総プレイ数の初期値
+            ] + flags
+
+            if row_idx:
+                # 既存データの上書き (A列からデータの長さ分)
+                end_col = gspread.utils.rowcol_to_a1(row_idx, len(row_data))
+                players_ws.update(f"A{row_idx}:{end_col}", [row_data])
+            else:
+                # 新規追加
+                players_ws.append_row(row_data)
+                
+            return True
+        except Exception as e:
+            print(f"[ERROR] プレイヤーデータの保存に失敗しました: {e}")
+            return False
+
+    def remove_player(self, discord_id: int) -> bool:
+        """指定したDiscord IDのプレイヤーをスプレッドシートから物理削除する"""
+        try:
+            players_ws = self.sheet.worksheet("プレイヤーデータ")
+            all_players = players_ws.get_all_records()
+            str_id = str(discord_id)
+            
+            for idx, p in enumerate(all_players, start=2):
+                if str(p.get("Discord_ID")) == str_id:
+                    players_ws.delete_rows(idx)
+                    return True
+            return False
+        except Exception as e:
+            print(f"[ERROR] プレイヤーの削除に失敗しました: {e}")
+            return False
 
     # ==========================================
-    # 📊 マップ統計機能 (新規追加)
+    # 📈 対戦ログ記録機能 (Bプラン)
     # ==========================================
     def _ensure_match_log_sheet(self, map_names: list) -> gspread.Worksheet:
-        """対戦ログシートの存在確認と、動的なマップ列ヘッダーの自動拡張を行う"""
+        """対戦ログシートの存在確認と、マップ列の自動拡張を行う"""
         try:
             ws = self.sheet.worksheet("対戦ログ")
         except gspread.exceptions.WorksheetNotFound:
@@ -87,61 +182,45 @@ class SheetManager:
         base_headers = ["対戦ID", "実行日時", "募集ホストID", "採用マップ", "参加人数", "総投票数"]
         current_headers = ws.row_values(1)
         
-        # 新規作成時などヘッダーが空の場合
         if not current_headers:
-            headers = base_headers + map_names
-            ws.update("A1", [headers])
+            ws.update("A1", [base_headers + map_names])
             return ws
 
-        # 既存ヘッダーに新しいマップ名がないか確認し、あれば右端に列を追加
-        headers_updated = False
+        # 既存ヘッダーに新しいマップ名の列が足りなければ右端に追加
         headers = current_headers.copy()
         for m_name in map_names:
             if m_name not in headers:
                 headers.append(m_name)
-                headers_updated = True
-                
-        if headers_updated:
+        
+        if len(headers) > len(current_headers):
             ws.update("A1", [headers])
             
         return ws
 
     def record_match_log(self, match_data: dict, map_names: list) -> bool:
-        """
-        チーム分け確定時の対戦ログ（生データ）をスプレッドシートに追記する。
-        各マップの得票数は、対応する列に自動的にマッピングされる。
-        """
+        """チーム分け確定時の対戦ログ（各マップの得票数含む）を1行記録する"""
         try:
             ws = self._ensure_match_log_sheet(map_names)
             headers = ws.row_values(1)
-            
             row_data = []
+            
             for h in headers:
-                if h == "対戦ID": 
-                    row_data.append(match_data.get("match_id", ""))
-                elif h == "実行日時": 
-                    row_data.append(match_data.get("timestamp", ""))
-                elif h == "募集ホストID": 
+                if h in ["対戦ID", "実行日時", "採用マップ"]:
+                    row_data.append(match_data.get(h, ""))
+                elif h == "募集ホストID":
                     row_data.append(str(match_data.get("host_id", "")))
-                elif h == "採用マップ": 
-                    row_data.append(match_data.get("selected_map", ""))
-                elif h == "参加人数": 
-                    row_data.append(match_data.get("participant_count", 0))
-                elif h == "総投票数": 
-                    row_data.append(match_data.get("total_votes", 0))
-                elif h in match_data.get("map_votes", {}):
-                    # そのマップに入った票数を記録
-                    row_data.append(match_data["map_votes"][h])
+                elif h in ["参加人数", "総投票数"]:
+                    row_data.append(match_data.get(h, 0))
+                elif h in map_names:
+                    # そのマップに入った票数を該当の列に記録する
+                    row_data.append(match_data.get("map_votes", {}).get(h, 0))
                 else:
-                    # その他のマップ（0票）、または関係ない列は 0 や空にする
-                    if h in map_names:
-                        row_data.append(0)
-                    else:
-                        row_data.append("")
+                    # その他関係ない列
+                    row_data.append("")
                         
             ws.append_row(row_data)
             print(f"[SUCCESS] 対戦ログを記録しました: {match_data.get('match_id')}")
             return True
         except Exception as e:
-            print(f"[ERROR] 対戦ログの記録に失敗しました: {e}")
+            print(f"[ERROR] 対戦ログの記録失敗: {e}")
             return False
