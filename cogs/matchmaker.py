@@ -4,8 +4,8 @@ from discord.ext import commands
 import itertools
 import random
 import os
+import datetime
 
-# 分離したマップ投票モジュールをインポート
 from cogs.map_voting import MapVoteView
 
 # ==========================================
@@ -18,11 +18,15 @@ DEFAULT_MAP_EMOJIS = {
     "七つの海": "🌊",
     "シャッフル": "🎲"
 }
+MAX_MAIN_PLAYERS = 12  # 本参加者の上限人数
 
 # ==========================================
 # 2. ロジック・アルゴリズム
 # ==========================================
 def balance_teams(players_info):
+    """
+    参加プレイヤーを2チームに分け、チームの合計スコア差が最小になる組み合わせ（全探索）を返す。
+    """
     p_ids = list(players_info.keys())
     n = len(p_ids)
     half = n // 2
@@ -73,8 +77,10 @@ class RemovePlayerSelect(discord.ui.Select):
             removed_name = self.parent_view.participants.pop(p_id)
             if p_id in self.parent_view.map_votes:
                 del self.parent_view.map_votes[p_id]
+            
+            # 親のViewのEmbedを更新 (辞退者が出たため、補欠が自動で本参加に繰り上がります)
             await self.parent_view.update_embed(original_message=self.original_message)
-            await interaction.response.send_message(f"✅ {removed_name} を今回の参加者リストから除外しました。", ephemeral=True)
+            await interaction.response.send_message(f"✅ {removed_name} をリストから除外しました。補欠がいる場合は自動で繰り上がります。", ephemeral=True)
         else:
             await interaction.response.send_message("既に除外されています。", ephemeral=True)
 
@@ -90,18 +96,20 @@ class MatchmakerView(discord.ui.View):
         self.host = host
         self.sheet_manager = sheet_manager
         self.map_emojis = map_emojis
+        # Pythonの辞書は順序を維持するため、先頭から12番目までが本参加、それ以降が補欠となる
         self.participants = {host.id: host.display_name}
         self.map_votes = {}
         self.message = None 
 
     async def register_vote(self, interaction: discord.Interaction, user_id: int, map_name: str):
-        """外部モジュール(map_voting.py)から投票データを受け取る専用メソッド"""
+        """外部モジュールから投票データを受け取る"""
         self.map_votes[user_id] = map_name
         
         if self.message:
             await self.update_embed(original_message=self.message)
 
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
+        """参加者、補欠、投票完了人数の表示を動的に更新する"""
         if interaction:
             embed = interaction.message.embeds[0]
             target_msg = interaction.message
@@ -111,14 +119,30 @@ class MatchmakerView(discord.ui.View):
         else:
             return
             
-        member_list_str = "\n".join([f"・<@{p_id}>" for p_id in self.participants.keys()]) if self.participants else "現在参加者なし"
-        embed.set_field_at(0, name=f"参加者一覧 ({len(self.participants)}名)", value=member_list_str, inline=False)
+        # 参加者を本参加(最大12)と補欠に分割
+        all_players = list(self.participants.items())
+        main_players = all_players[:MAX_MAIN_PLAYERS]
+        reserve_players = all_players[MAX_MAIN_PLAYERS:]
+
+        # 一旦既存のフィールドをクリアして再構築する
+        embed.clear_fields()
         
-        vote_count = len([uid for uid in self.map_votes.keys() if uid in self.participants])
-        vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
+        # 1. 本参加者一覧
+        main_list_str = "\n".join([f"・<@{p_id}>" for p_id, _ in main_players]) if main_players else "現在参加者なし"
+        embed.add_field(name=f"参加者一覧 ({len(main_players)}/{MAX_MAIN_PLAYERS}名)", value=main_list_str, inline=False)
+        
+        # 2. 補欠一覧 (13人目以降がいる場合のみ追加)
+        if reserve_players:
+            reserve_list_str = "\n".join([f"・<@{p_id}>" for p_id, _ in reserve_players])
+            embed.add_field(name=f"補欠一覧 ({len(reserve_players)}名)", value=reserve_list_str, inline=False)
+        
+        # 3. マップ投票ガイド (投票完了人数は「本参加者」のみカウントする)
+        main_player_ids = [p[0] for p in main_players]
+        vote_count = len([uid for uid in self.map_votes.keys() if uid in main_player_ids])
+        vote_guide = "「参加 / 投票する」ボタンを押すと、マップ投票メニューが出現します。\n" \
                      "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
-                     f"*(現在の投票完了人数: **{vote_count} / {len(self.participants)}名**)*"
-        embed.set_field_at(1, name="【マップ投票】", value=vote_guide, inline=False)
+                     f"*(現在の本参加者の投票完了: **{vote_count} / {len(main_players)}名**)*"
+        embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
         
         if interaction:
             await interaction.response.edit_message(embed=embed, view=self)
@@ -134,22 +158,30 @@ class MatchmakerView(discord.ui.View):
             players_info = self.sheet_manager.get_player_scores([user.id])
             if players_info.get(user.id) is None:
                 await interaction.followup.send(
-                    "⚠️ **チームの戦力バランスを計算するため、事前にプレイヤー登録が必要です。**\n"
-                    "管理者が設置したパネルから登録を行い、再度ボタンを押してください！",
+                    "⚠️ **チームの戦力バランスを計算するため、事前に登録が必要です。**\n"
+                    "管理者が設置したパネルからプレイヤー登録し、再度ボタンを押してください！",
                     ephemeral=True
                 )
                 return
 
             if user.id not in self.participants:
+                # 13番目以降の参加かどうかを判定
+                is_reserve = len(self.participants) >= MAX_MAIN_PLAYERS
                 self.participants[user.id] = user.display_name
                 await self.update_embed(original_message=interaction.message)
-                msg = "✅ 参加登録しました！\n" \
-                      "下のメニューからプレイしたいマップを選択し、**【🗳️ 投票】**ボタンを押してください。"
+                
+                if is_reserve:
+                    msg = "✅ 参加登録しました！\n" \
+                          "※現在参加枠が埋まっているため、**【補欠枠】**での登録となります。\n" \
+                          "（本参加者に辞退者が出た場合は、先着順で自動的に繰り上がります）\n\n" \
+                          "下のメニューからプレイしたいマップを選択し、**【🗳️ 投票】**ボタンを押してください。"
+                else:
+                    msg = "✅ 参加登録しました！\n" \
+                          "下のメニューからプレイしたいマップを選択し、**【🗳️ 投票】**ボタンを押してください。"
             else:
-                msg = "✅ あなたは既に参加メンバーに登録されています。\n" \
+                msg = "✅ あなたは既に参加メンバー（または補欠）に登録されています。\n" \
                       "マップの投票先を設定・変更したい場合は、以下から選び直して**【🗳️ 投票】**ボタンを押してください。"
 
-            # 分離したモジュールからViewを呼び出す
             vote_view = MapVoteView(self.map_emojis, main_matchmaker_view=self)
             await interaction.followup.send(content=msg, view=vote_view, ephemeral=True)
 
@@ -191,26 +223,41 @@ class MatchmakerView(discord.ui.View):
             await interaction.response.send_message("このボタンは募集ホストのみ押すことができます。", ephemeral=True)
             return
 
-        if len(self.participants) < 2:
-            await interaction.response.send_message("チームを分けるには最低2人のプレイヤーが必要です！", ephemeral=True)
+        # チーム分けの対象は「本参加者(先頭から最大12名)」のみとする
+        all_players = list(self.participants.keys())
+        main_players = all_players[:MAX_MAIN_PLAYERS]
+
+        if len(main_players) < 2:
+            await interaction.response.send_message("チームを分けるには最低2人の本参加プレイヤーが必要です！", ephemeral=True)
+            return
+            
+        # 奇数ブロック: 参加人数が奇数の場合はストップさせる
+        if len(main_players) % 2 != 0:
+            await interaction.response.send_message(
+                f"⚠️ 現在の本参加者は **{len(main_players)}名（奇数）** です。\n"
+                "対等なチーム分けを行うには人数が偶数である必要があります。メンバーが揃うまでお待ちください。",
+                ephemeral=True
+            )
             return
 
         await interaction.response.defer()
 
+        # マップ投票の集計 (本参加者の票のみ有効とする)
         map_vote_counts = {name: 0 for name in self.map_emojis.keys()}
         for user_id, map_name in self.map_votes.items():
-            if user_id in self.participants and map_name in map_vote_counts:
+            if user_id in main_players and map_name in map_vote_counts:
                 map_vote_counts[map_name] += 1
 
         if map_vote_counts and max(map_vote_counts.values()) > 0:
             max_vote_val = max(map_vote_counts.values())
             voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
             chosen_map = random.choice(voted_maps)
-            map_result_str = f"🗺️ 本日のマップ: **{chosen_map}** （{max_vote_val}票獲得）"
+            map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            map_result_str = f"🗺️ 本日のマップ: **未投票（ランダム）**"
+            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム等）**"
 
-        players_info = self.sheet_manager.get_player_scores(list(self.participants.keys()))
+        # チーム分け実行 (本参加者のみで計算)
+        players_info = self.sheet_manager.get_player_scores(main_players)
         for p_id, p_data in list(players_info.items()):
             if p_data is None:
                 players_info[p_id] = {"name": f"未登録({str(p_id)[:5]})", "score": 3}
@@ -223,18 +270,42 @@ class MatchmakerView(discord.ui.View):
         team_b_str = "\n".join([f"・<@{p_id}> (スコア:{players_info[p_id]['score']})" for p_id in team_b]) or "なし"
 
         result_embed = discord.Embed(
-            title="🎮 Civ6 チーム分け結果",
+            title="🎮 Civ6 チーム分け結果発表！",
             color=discord.Color.gold()
         )
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        #result_embed.set_footer(text="⚔️ GLHF ⚔️")
+        result_embed.set_footer(text="楽しい対戦になりますように！GLHF!")
 
         for child in self.children:
             child.disabled = True
         await interaction.followup.edit_message(message_id=interaction.message.id, view=self)
-        await interaction.followup.send(content=f"ホスト <@{self.host.id}> が募集をクローズしました。", embed=result_embed)
+        await interaction.followup.send(content=f"ホスト <@{self.host.id}> がチームを確定しました！", embed=result_embed)
+
+        # ----------------------------------------------------
+        # 📊 統計データの構築とスプレッドシートへの記録
+        # ----------------------------------------------------
+        try:
+            now = datetime.datetime.now()
+            match_id = f"MATCH-{now.strftime('%Y%m%d-%H%M%S')}"
+            
+            match_data = {
+                "match_id": match_id,
+                "timestamp": now.strftime('%Y-%m-%d %H:%M:%S'),
+                "host_id": self.host.id,
+                "selected_map": chosen_map if chosen_map != "未投票（またはランダム）" else "ランダム",
+                "participant_count": len(main_players), # 補欠を除いた本参加人数
+                "total_votes": sum(map_vote_counts.values()),
+                "map_votes": map_vote_counts
+            }
+            
+            map_names = list(self.map_emojis.keys())
+            if hasattr(self.sheet_manager, "record_match_log"):
+                self.sheet_manager.record_match_log(match_data, map_names)
+            
+        except Exception as e:
+            print(f"[WARNING] 統計データの記録中にエラーが発生しました: {e}")
 
     @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -247,7 +318,7 @@ class MatchmakerView(discord.ui.View):
 
 
 # ==========================================
-# 4. Discord UIコンポーネント (アンケート系)
+# 4. Discord UIコンポーネント (登録系)
 # ==========================================
 class SkillDropdown(discord.ui.Select):
     def __init__(self, flg_list: list):
@@ -277,7 +348,7 @@ class SkillDropdown(discord.ui.Select):
             options.append(discord.SelectOption(label="設定されたFLGがありません", value="none"))
 
         super().__init__(
-            placeholder="自分がプレイできる項目にチェックを入れてください（複数選択可）",
+            placeholder="自分ができる能力にチェックを入れてください（複数選択可）",
             min_values=0,
             max_values=max_vals,
             options=options,
@@ -295,7 +366,7 @@ class RegistrationFormView(discord.ui.View):
         self.dropdown = SkillDropdown(flg_list)
         self.add_item(self.dropdown)
 
-    @discord.ui.button(label="この内容で登録する", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="この内容でスキルを登録する", style=discord.ButtonStyle.success, row=1)
     async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         selected_flgs = self.dropdown.values
         if "none" in selected_flgs:
@@ -313,7 +384,7 @@ class RegistrationFormView(discord.ui.View):
             )
             success = True
         except Exception as e:
-            print(f"[ERROR] 登録失敗: {e}")
+            print(f"[ERROR] スキル登録失敗: {e}")
             success = False
 
         if success:
@@ -322,7 +393,7 @@ class RegistrationFormView(discord.ui.View):
             selected_str = "\n".join(selected_names) if selected_names else "・なし（初期スコア）"
 
             embed = discord.Embed(
-                title="✅ 登録が完了しました！",
+                title="✅ スキル登録が完了しました！",
                 description="情報がスプレッドシートに連携されました。\nこれでチーム分けにいつでも参加できます！",
                 color=discord.Color.green()
             )
@@ -399,25 +470,24 @@ class MatchmakerCog(commands.Cog):
             map_emojis = DEFAULT_MAP_EMOJIS
 
         embed = discord.Embed(
-            title="⚔️ Civ6 マルチプレイ募集 ⚔️",
+            title="⚔️ Civ6 マルチプレイ対戦募集！ ⚔️",
             description=f"ホスト <@{host.id}> が募集を開始しました！\n"
-                        "以下のボタンから参加・マップ投票を行ってください。",
+                        "以下のボタンから参加表明・マップ投票を行ってください。",
             color=discord.Color.blue()
         )
-        embed.add_field(name="参加者一覧", value=f"・<@{host.id}>", inline=False)
+        # 初期状態はホストのみ
+        embed.add_field(name=f"参加者一覧 (1/{MAX_MAIN_PLAYERS}名)", value=f"・<@{host.id}>", inline=False)
         
         vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
                      "マップを仮選択後、**【🗳️ 投票】**ボタンを押して完了してください。\n" \
-                     "*(現在の投票完了人数: **0 / 1名**)*"
+                     "*(現在の本参加者の投票完了: **0 / 1名**)*"
         embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
         
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager, map_emojis=map_emojis)
         
         await interaction.response.send_message(content=mention_str if mention_str else None, embed=embed, view=view)
-        
         view.message = await interaction.original_response()
 
-        # ホストにも自動的に投票メニューをポップアップ
         host_vote_view = MapVoteView(map_emojis, main_matchmaker_view=view)
         await interaction.followup.send(
             content=f"✅ <@{host.id}> さん、募集を開始しました！\n"
@@ -433,15 +503,15 @@ class MatchmakerCog(commands.Cog):
             title="⚔️ Civ6 プレイヤー登録 ⚔️",
             description="Civ6マルチサーバーへようこそ！\n"
                         "プレイヤー全員に登録をお願いしています。\n\n"
-                        "以下のボタンから回答して登録を済ませてください！\n"
+                        "以下のボタンから登録を済ませてください！\n"
                         "※未登録のプレイヤーは、募集時の「参加ボタン」が押せなくなります。",
             color=discord.Color.dark_purple()
         )
         embed.add_field(
             name="📝 登録・更新方法",
             value="1. 下の「登録する」ボタンを押す。\n"
-                  "2. 自分専用のドロップダウンから達成可能な能力項目を選択（複数可）。\n"
-                  "3. 送信ボタンを押して「登録完了」と表示されればOKです",
+                  "2. ドロップダウンから項目を選択（複数可）。\n"
+                  "3. 送信ボタンを押して「登録完了」と表示されればOKです！",
             inline=False
         )
 
