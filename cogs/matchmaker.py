@@ -263,7 +263,7 @@ class MatchmakerView(discord.ui.View):
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="楽しい対戦になりますように！GLHF!")
+        result_embed.set_footer(text="GLHF!")
 
         for child in self.children:
             child.disabled = True
