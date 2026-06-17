@@ -158,7 +158,7 @@ class MatchmakerView(discord.ui.View):
             players_info = self.sheet_manager.get_player_scores([user.id])
             if players_info.get(user.id) is None:
                 await interaction.followup.send(
-                    "⚠️ **チームの戦力バランスを計算するため、事前に登録が必要です。**\n"
+                    "⚠️ **参加するには事前に登録が必要です。**\n"
                     "管理者が設置したパネルからプレイヤー登録し、再度ボタンを押してください！",
                     ephemeral=True
                 )
@@ -252,9 +252,9 @@ class MatchmakerView(discord.ui.View):
             max_vote_val = max(map_vote_counts.values())
             voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
             chosen_map = random.choice(voted_maps)
-            map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
+            map_result_str = f"🗺️ 本日のマップ: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム等）**"
+            map_result_str = f"🗺️ 本日のマップ: **未投票（ランダム等）**"
 
         # チーム分け実行 (本参加者のみで計算)
         players_info = self.sheet_manager.get_player_scores(main_players)
@@ -276,7 +276,7 @@ class MatchmakerView(discord.ui.View):
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="楽しい対戦になりますように！GLHF!")
+        result_embed.set_footer(text="GLHF!")
 
         for child in self.children:
             child.disabled = True
