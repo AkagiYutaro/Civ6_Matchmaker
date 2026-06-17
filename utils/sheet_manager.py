@@ -198,8 +198,9 @@ class SheetManager:
         return ws
 
     def record_match_log(self, match_data: dict, map_names: list) -> bool:
-        """チーム分け確定時の対戦ログ（各マップの得票数含む）を1行記録する"""
+        """チーム分け確定時の対戦ログを記録し、MAPシートに統計を反映（カウント）する"""
         try:
+            # --- 1. 対戦ログシートへの生データの追記 ---
             ws = self._ensure_match_log_sheet(map_names)
             headers = ws.row_values(1)
             row_data = []
@@ -220,6 +221,82 @@ class SheetManager:
                         
             ws.append_row(row_data)
             print(f"[SUCCESS] 対戦ログを記録しました: {match_data.get('match_id')}")
+
+            # --- 2. MAPシートへの統計カウント更新 (追加処理) ---
+            try:
+                ws_map = self.sheet.worksheet("MAP")
+                map_records = ws_map.get_all_records()
+                map_headers = ws_map.row_values(1)
+                
+                # 追加する統計列ヘッダーを定義
+                stat_headers = ["採用回数", "累計獲得票数", "累計参加人数", "最終採用対戦ID", "最終実行日時"]
+                headers_updated = False
+                for h in stat_headers:
+                    if h not in map_headers:
+                        map_headers.append(h)
+                        headers_updated = True
+                
+                # ヘッダーが足りなければA1から上書きしてデータを再取得
+                if headers_updated:
+                    ws_map.update("A1", [map_headers])
+                    map_records = ws_map.get_all_records()
+                
+                selected_map = match_data.get("selected_map", "")
+                updates = []
+                
+                for idx, row in enumerate(map_records, start=2): # 1行目はヘッダーのため2行目から
+                    m_name = str(row.get("マップ名", "")).strip()
+                    if not m_name:
+                        continue
+                        
+                    # 現在のカウント値を取得 (空白の場合は0にする)
+                    play_count = int(row.get("採用回数", 0) or 0)
+                    total_votes = int(row.get("累計獲得票数", 0) or 0)
+                    total_participants = int(row.get("累計参加人数", 0) or 0)
+                    last_match_id = str(row.get("最終採用対戦ID", ""))
+                    last_timestamp = str(row.get("最終実行日時", ""))
+                    
+                    is_dirty = False
+                    
+                    # 獲得票数の加算（投票があった全マップに対して実行）
+                    votes_for_this_map = match_data.get("map_votes", {}).get(m_name, 0)
+                    if votes_for_this_map > 0:
+                        total_votes += votes_for_this_map
+                        is_dirty = True
+                        
+                    # 今回採用されたマップへの情報の更新と加算
+                    if m_name == selected_map:
+                        play_count += 1
+                        total_participants += match_data.get("participant_count", 0)
+                        last_match_id = match_data.get("match_id", "")
+                        last_timestamp = match_data.get("timestamp", "")
+                        is_dirty = True
+                        
+                    # データに変更があった行だけ更新用のリストに詰める
+                    if is_dirty:
+                        new_row = []
+                        for h in map_headers:
+                            if h == "マップ名": new_row.append(row.get("マップ名", ""))
+                            elif h == "絵文字": new_row.append(row.get("絵文字", ""))
+                            elif h == "採用回数": new_row.append(play_count)
+                            elif h == "累計獲得票数": new_row.append(total_votes)
+                            elif h == "累計参加人数": new_row.append(total_participants)
+                            elif h == "最終採用対戦ID": new_row.append(last_match_id)
+                            elif h == "最終実行日時": new_row.append(last_timestamp)
+                            else: new_row.append(row.get(h, ""))
+                            
+                        # 更新範囲を動的に計算 (A列から最終列まで)
+                        end_col = gspread.utils.rowcol_to_a1(idx, len(new_row))
+                        updates.append({"range": f"A{idx}:{end_col}", "values": [new_row]})
+                
+                # API呼び出し制限を回避するため、一括で更新処理を実行
+                if updates:
+                    ws_map.batch_update(updates)
+                    print("[SUCCESS] MAPシートの統計（採用回数、票数など）を更新・カウントしました。")
+                    
+            except Exception as e:
+                print(f"[WARNING] MAPシートの統計更新に失敗しました: {e}")
+
             return True
         except Exception as e:
             print(f"[ERROR] 対戦ログの記録失敗: {e}")
