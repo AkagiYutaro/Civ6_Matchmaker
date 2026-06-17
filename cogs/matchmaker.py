@@ -78,7 +78,6 @@ class RemovePlayerSelect(discord.ui.Select):
             if p_id in self.parent_view.map_votes:
                 del self.parent_view.map_votes[p_id]
             
-            # 親のViewのEmbedを更新 (辞退者が出たため、補欠が自動で本参加に繰り上がります)
             await self.parent_view.update_embed(original_message=self.original_message)
             await interaction.response.send_message(f"✅ {removed_name} をリストから除外しました。補欠がいる場合は自動で繰り上がります。", ephemeral=True)
         else:
@@ -96,20 +95,16 @@ class MatchmakerView(discord.ui.View):
         self.host = host
         self.sheet_manager = sheet_manager
         self.map_emojis = map_emojis
-        # Pythonの辞書は順序を維持するため、先頭から12番目までが本参加、それ以降が補欠となる
         self.participants = {host.id: host.display_name}
         self.map_votes = {}
         self.message = None 
 
     async def register_vote(self, interaction: discord.Interaction, user_id: int, map_name: str):
-        """外部モジュールから投票データを受け取る"""
         self.map_votes[user_id] = map_name
-        
         if self.message:
             await self.update_embed(original_message=self.message)
 
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
-        """参加者、補欠、投票完了人数の表示を動的に更新する"""
         if interaction:
             embed = interaction.message.embeds[0]
             target_msg = interaction.message
@@ -119,24 +114,19 @@ class MatchmakerView(discord.ui.View):
         else:
             return
             
-        # 参加者を本参加(最大12)と補欠に分割
         all_players = list(self.participants.items())
         main_players = all_players[:MAX_MAIN_PLAYERS]
         reserve_players = all_players[MAX_MAIN_PLAYERS:]
 
-        # 一旦既存のフィールドをクリアして再構築する
         embed.clear_fields()
         
-        # 1. 本参加者一覧
         main_list_str = "\n".join([f"・<@{p_id}>" for p_id, _ in main_players]) if main_players else "現在参加者なし"
         embed.add_field(name=f"参加者一覧 ({len(main_players)}/{MAX_MAIN_PLAYERS}名)", value=main_list_str, inline=False)
         
-        # 2. 補欠一覧 (13人目以降がいる場合のみ追加)
         if reserve_players:
             reserve_list_str = "\n".join([f"・<@{p_id}>" for p_id, _ in reserve_players])
             embed.add_field(name=f"補欠一覧 ({len(reserve_players)}名)", value=reserve_list_str, inline=False)
         
-        # 3. マップ投票ガイド (投票完了人数は「本参加者」のみカウントする)
         main_player_ids = [p[0] for p in main_players]
         vote_count = len([uid for uid in self.map_votes.keys() if uid in main_player_ids])
         vote_guide = "「参加 / 投票する」ボタンを押すと、マップ投票メニューが出現します。\n" \
@@ -158,14 +148,13 @@ class MatchmakerView(discord.ui.View):
             players_info = self.sheet_manager.get_player_scores([user.id])
             if players_info.get(user.id) is None:
                 await interaction.followup.send(
-                    "⚠️ **参加するには事前に登録が必要です。**\n"
+                    "⚠️ **チームの戦力バランスを計算するため、事前に登録が必要です。**\n"
                     "管理者が設置したパネルからプレイヤー登録し、再度ボタンを押してください！",
                     ephemeral=True
                 )
                 return
 
             if user.id not in self.participants:
-                # 13番目以降の参加かどうかを判定
                 is_reserve = len(self.participants) >= MAX_MAIN_PLAYERS
                 self.participants[user.id] = user.display_name
                 await self.update_embed(original_message=interaction.message)
@@ -191,7 +180,6 @@ class MatchmakerView(discord.ui.View):
     @discord.ui.button(label="辞退する", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn", row=0)
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
-        
         if user.id == self.host.id:
             await interaction.response.send_message("⚠️ ホスト（募集者）は参加を辞退することはできません。キャンセルしたい場合は「募集をキャンセル」を押してください。", ephemeral=True)
             return
@@ -223,7 +211,6 @@ class MatchmakerView(discord.ui.View):
             await interaction.response.send_message("このボタンは募集ホストのみ押すことができます。", ephemeral=True)
             return
 
-        # チーム分けの対象は「本参加者(先頭から最大12名)」のみとする
         all_players = list(self.participants.keys())
         main_players = all_players[:MAX_MAIN_PLAYERS]
 
@@ -231,7 +218,6 @@ class MatchmakerView(discord.ui.View):
             await interaction.response.send_message("チームを分けるには最低2人の本参加プレイヤーが必要です！", ephemeral=True)
             return
             
-        # 奇数ブロック: 参加人数が奇数の場合はストップさせる
         if len(main_players) % 2 != 0:
             await interaction.response.send_message(
                 f"⚠️ 現在の本参加者は **{len(main_players)}名（奇数）** です。\n"
@@ -242,7 +228,7 @@ class MatchmakerView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # マップ投票の集計 (本参加者の票のみ有効とする)
+        # マップ投票の集計
         map_vote_counts = {name: 0 for name in self.map_emojis.keys()}
         for user_id, map_name in self.map_votes.items():
             if user_id in main_players and map_name in map_vote_counts:
@@ -252,11 +238,12 @@ class MatchmakerView(discord.ui.View):
             max_vote_val = max(map_vote_counts.values())
             voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
             chosen_map = random.choice(voted_maps)
-            map_result_str = f"🗺️ 本日のマップ: **{chosen_map}** （{max_vote_val}票獲得）"
+            map_result_str = f"🗺️ 本日の戦場: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            map_result_str = f"🗺️ 本日のマップ: **未投票（ランダム等）**"
+            chosen_map = "ランダム" # 💡 未投票時のバグ修正
+            map_result_str = f"🗺️ 本日の戦場: **未投票（ランダム等）**"
 
-        # チーム分け実行 (本参加者のみで計算)
+        # チーム分け実行
         players_info = self.sheet_manager.get_player_scores(main_players)
         for p_id, p_data in list(players_info.items()):
             if p_data is None:
@@ -276,7 +263,7 @@ class MatchmakerView(discord.ui.View):
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
         result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
-        result_embed.set_footer(text="GLHF!")
+        result_embed.set_footer(text="楽しい対戦になりますように！GLHF!")
 
         for child in self.children:
             child.disabled = True
@@ -287,20 +274,24 @@ class MatchmakerView(discord.ui.View):
         # 📊 統計データの構築とスプレッドシートへの記録
         # ----------------------------------------------------
         try:
-            now = datetime.datetime.now()
+            # 💡 修正: 確実に日本時間(JST)になるようにタイムゾーンを指定
+            JST = datetime.timezone(datetime.timedelta(hours=+9), 'JST')
+            now = datetime.datetime.now(JST)
+            
             match_id = f"MATCH-{now.strftime('%Y%m%d-%H%M%S')}"
             
             match_data = {
                 "match_id": match_id,
                 "timestamp": now.strftime('%Y-%m-%d %H:%M:%S'),
                 "host_id": self.host.id,
-                "selected_map": chosen_map if chosen_map != "未投票（またはランダム）" else "ランダム",
+                "selected_map": chosen_map,
                 "participant_count": len(main_players), # 補欠を除いた本参加人数
                 "total_votes": sum(map_vote_counts.values()),
                 "map_votes": map_vote_counts
             }
             
             map_names = list(self.map_emojis.keys())
+            # record_match_log メソッドが存在すれば実行
             if hasattr(self.sheet_manager, "record_match_log"):
                 self.sheet_manager.record_match_log(match_data, map_names)
             
@@ -475,7 +466,6 @@ class MatchmakerCog(commands.Cog):
                         "以下のボタンから参加表明・マップ投票を行ってください。",
             color=discord.Color.blue()
         )
-        # 初期状態はホストのみ
         embed.add_field(name=f"参加者一覧 (1/{MAX_MAIN_PLAYERS}名)", value=f"・<@{host.id}>", inline=False)
         
         vote_guide = "「参加 / 投票する」ボタンを押すと、自分専用のマップ投票メニューが出現します。\n" \
