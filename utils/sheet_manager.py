@@ -6,7 +6,7 @@ import os
 # データベース管理者 (SheetManager)
 # ==========================================
 class SheetManager:
-    """Google Sheets APIとの通信、プレイヤーデータの安全な読み書きを担当します。"""
+    """Google Sheets APIとの通信、プレイヤーデータの安全な読み書きを担当"""
     
     # プレイヤーデータシートの固定ヘッダー定義
     STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "WIN", "LOSE", "WinRate", "総プレイ数"]
@@ -32,22 +32,20 @@ class SheetManager:
             raise e
 
     def get_map_emojis(self) -> dict:
-        """マスタ設定シートからマップ名と絵文字の定義を取得する"""
+        """「MAP」シートからマップ名と絵文字の定義を取得"""
         try:
-            ws = self.sheet.worksheet("マスタ設定")
+            ws = self.sheet.worksheet("MAP")
             records = ws.get_all_records()
             map_data = {}
             for row in records:
-                # 「カテゴリ」が「マップ」の行を抽出します
-                if str(row.get("カテゴリ", "")).strip() == "マップ":
-                    map_name = str(row.get("FLG名", "")).strip()
-                    # 備考欄（または配点欄）に絵文字🌍を入れる想定です
-                    emoji = str(row.get("備考", "")).strip()
-                    if map_name and emoji:
-                        map_data[map_name] = emoji
+                map_name = str(row.get("マップ名", "")).strip()
+                emoji = str(row.get("絵文字", "")).strip()
+                if map_name and emoji:
+                    map_data[map_name] = emoji
             return map_data
         except Exception as e:
-            print(f"[ERROR] マップ設定の取得に失敗しました: {e}")
+            # 💡 マップが取得されない場合にターミナル（ログ）に明確に出力されます
+            print(f"[ERROR] MAPシートの取得に失敗しました: {e}")
             return {}
 
     def get_master_config(self) -> list:
@@ -63,8 +61,8 @@ class SheetManager:
 
     def get_player_scores(self, discord_ids: list) -> dict:
         """
-        指定されたDiscord IDリストのプレイヤーの総合スコアを取得する。
-        ※チーム分けに必須のメソッドです。
+        指定されたDiscord IDリストのプレイヤーの総合スコアを取得する
+        ※チーム分けに必須のメソッド
         """
         try:
             players_ws = self.sheet.worksheet("プレイヤーデータ")
@@ -98,7 +96,7 @@ class SheetManager:
         except Exception as e:
             print(f"[ERROR] プレイヤースコアの読み込み失敗: {e}")
             raise e
-
+        
     def register_or_update_player(self, discord_id: int, player_name: str, skill_data: dict) -> bool:
         """
         プレイヤーの新規登録（オートインクリメント採番）、または既存データの更新を行う。
@@ -178,6 +176,7 @@ class SheetManager:
             ws = self.sheet.worksheet("対戦ログ")
         except gspread.exceptions.WorksheetNotFound:
             ws = self.sheet.add_worksheet(title="対戦ログ", rows="100", cols="20")
+            print("[INFO] '対戦ログ' ワークシートを自動新規作成しました。")
             
         base_headers = ["対戦ID", "実行日時", "募集ホストID", "採用マップ", "参加人数", "総投票数"]
         current_headers = ws.row_values(1)
@@ -194,6 +193,7 @@ class SheetManager:
         
         if len(headers) > len(current_headers):
             ws.update("A1", [headers])
+            print("[INFO] 対戦ログのヘッダーを最新のマップ定義に同期しました。")
             
         return ws
 
