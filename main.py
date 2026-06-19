@@ -50,7 +50,7 @@ class MatchmakerBot(commands.Bot):
         self.logger.info("=== setup_hookを開始します (Cogsの読み込みとコマンド同期) ===")
         
         # 1. 拡張機能のロード
-        initial_extensions = ["cogs.matchmaker"]
+        initial_extensions = ["cogs.matchmaker", "cogs.banpick"]
         for extension in initial_extensions:
             try:
                 await self.load_extension(extension)
