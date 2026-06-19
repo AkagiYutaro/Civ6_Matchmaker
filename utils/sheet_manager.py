@@ -54,6 +54,25 @@ class SheetManager:
             logger.error(f"[ERROR] MAPシートの取得に失敗しました: {e}")
             return {}
 
+    def get_banpick_rules(self) -> list:
+        """「BanPick」シートからルール名と絵文字、説明を取得"""
+        try:
+            ws = self.sheet.worksheet("BanPick")
+            records = ws.get_all_records()
+            rules = []
+            for row in records:
+                rule_name = str(row.get("ルール名", "")).strip()
+                if rule_name:
+                    rules.append({
+                        "ルール名": rule_name,
+                        "絵文字": str(row.get("絵文字", "")).strip(),
+                        "説明（備考）": str(row.get("説明（備考）", "")).strip()
+                    })
+            return rules
+        except Exception as e:
+            logger.warning(f"[WARNING] BanPickシートが見つからないか取得に失敗しました: {e}")
+            return []
+
     def get_master_config(self) -> list:
         """マスタ設定シートからスキル定義を取得する"""
         try:
