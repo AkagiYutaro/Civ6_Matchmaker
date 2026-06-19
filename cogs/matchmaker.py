@@ -11,6 +11,7 @@ from cogs.map_voting import MapVoteView
 # ==========================================
 # 1. 定数・設定
 # ==========================================
+
 DEFAULT_MAP_EMOJIS = {
     "パンゲア": "🌍",
     "大陸": "🗺️",
@@ -23,6 +24,7 @@ MAX_MAIN_PLAYERS = 12  # 本参加者の上限人数
 # ==========================================
 # 2. ロジック・アルゴリズム
 # ==========================================
+
 def balance_teams(players_info):
     """
     参加プレイヤーを2チームに分け、チームの合計スコア差が最小になる組み合わせ（全探索）を返す。
@@ -54,6 +56,7 @@ def balance_teams(players_info):
 # ==========================================
 # 3. Discord UIコンポーネント (募集パネル系)
 # ==========================================
+
 class RemovePlayerSelect(discord.ui.Select):
     def __init__(self, parent_view, original_message):
         options = []
@@ -88,6 +91,85 @@ class RemovePlayerView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(RemovePlayerSelect(parent_view, original_message))
 
+# ------------------------------------------
+# BAN/PICK ルール決定用コンポーネント
+# ------------------------------------------
+
+class BanPickSelect(discord.ui.Select):
+    def __init__(self, rules: list, parent_view):
+        self.parent_view = parent_view
+        options = []
+        for r in rules:
+            desc = r.get("説明（備考）", "")
+            if len(desc) > 50:
+                desc = desc[:47] + "..."
+            
+            emoji = r.get("絵文字", "").strip()
+            if not emoji:
+                emoji = None
+                
+            options.append(discord.SelectOption(
+                label=r.get("ルール名", "名称未設定"),
+                emoji=emoji,
+                description=desc,
+                value=r.get("ルール名", "名称未設定")
+            ))
+            
+        super().__init__(
+            placeholder="⚔️ BAN/PICKのルールを選択してください...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="civ_banpick_select"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        # 選択されたルールを一時保存し、確定ボタンを有効化
+        self.parent_view.selected_rule = self.values[0]
+        self.parent_view.confirm_button.disabled = False
+        await interaction.response.edit_message(view=self.parent_view)
+
+class BanPickConfirmButton(discord.ui.Button):
+    def __init__(self, parent_view):
+        super().__init__(
+            label="これで決定", 
+            style=discord.ButtonStyle.success, 
+            disabled=True, 
+            custom_id="civ_banpick_confirm"
+        )
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        rule_name = self.parent_view.selected_rule
+        
+        # 二重押し防止のためUIを無効化
+        for child in self.parent_view.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self.parent_view)
+        
+        # ご指定の文言で全員に通知
+        await interaction.followup.send(f"🎉 **BANPICK：{rule_name}**")
+
+class BanPickView(discord.ui.View):
+    def __init__(self, host: discord.Member, rules: list):
+        super().__init__(timeout=None)
+        self.host = host
+        self.selected_rule = None
+        
+        self.confirm_button = BanPickConfirmButton(self)
+        self.add_item(BanPickSelect(rules, self))
+        self.add_item(self.confirm_button)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # ホスト以外が触ろうとしたらブロック
+        if interaction.user.id != self.host.id:
+            await interaction.response.send_message("ホストのみがBAN/PICKルールを決定できます。", ephemeral=True)
+            return False
+        return True
+
+# ------------------------------------------
+# メインの募集・チーム分け用コンポーネント
+# ------------------------------------------
 
 class MatchmakerView(discord.ui.View):
     def __init__(self, host: discord.Member, sheet_manager, map_emojis: dict):
@@ -297,6 +379,28 @@ class MatchmakerView(discord.ui.View):
             
         except Exception as e:
             print(f"[WARNING] 統計データの記録中にエラーが発生しました: {e}")
+
+        # ----------------------------------------------------
+        # 🎲 BAN/PICK ルール選択の提示 (別ファイルからインポートして実行)
+        # ----------------------------------------------------
+        rules = []
+        if hasattr(self.sheet_manager, "get_banpick_rules"):
+            rules = self.sheet_manager.get_banpick_rules()
+            
+        if not rules:
+            # 万が一シートが存在しない・読み込めない場合のフォールバック(仮置き)
+            rules = [
+                {"ルール名": "完全ランダム", "絵文字": "🎲", "説明（備考）": "全員がランダムな指導者でプレイします。"},
+                {"ルール名": "1Ban 3Pick", "絵文字": "🚫", "説明（備考）": "各チーム1つの文明をBANし、3つの文明から1つを選びます。"}
+            ]
+            
+        # 別ファイルに分離した機能を呼び出す
+        from cogs.banpick import BanPickView
+        bp_view = BanPickView(host=self.host, rules=rules)
+        await interaction.followup.send(
+            content=f"ホスト <@{self.host.id}> は、続けてBAN/PICKのルールを決定してください。", 
+            view=bp_view
+        )
 
     @discord.ui.button(label="募集をキャンセル", style=discord.ButtonStyle.danger, custom_id="civ_cancel_btn", row=2)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
