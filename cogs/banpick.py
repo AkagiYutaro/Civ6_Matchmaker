@@ -325,7 +325,7 @@ class BanPickStartView(discord.ui.View):
         #         continue
 
         global_pool = []
-        for i, row in enumerate(rows, start=1):
+        for i, row in enumerate(all_leaders, start=1):
             raw = row.get("グローバルBANFLG", "")
             if raw is None:
                 logging.debug(f"行 {i}: 列が None のためスキップ")
