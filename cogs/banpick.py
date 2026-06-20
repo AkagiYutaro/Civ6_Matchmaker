@@ -314,8 +314,9 @@ class BanPickStartView(discord.ui.View):
         # グローバルBAN候補リストの抽出
         global_pool = []
         for L in all_leaders:
+            v = L.get("グローバルBAN候補","")
             try:
-                if int(str(L.get("グローバルBAN候補", 0) or 0)) == 1:
+                if int(str(v).strip()) == 1:
                     global_pool.append(L)
             except ValueError:
                 pass
