@@ -50,7 +50,8 @@ class MatchmakerBot(commands.Bot):
         self.logger.info("=== setup_hookを開始します (Cogsの読み込みとコマンド同期) ===")
         
         # 1. 拡張機能のロード
-        initial_extensions = ["cogs.matchmaker", "cogs.banpick"]
+        # 👇 修正: banpick はコマンド登録ファイルではないため、読み込みリストから外します
+        initial_extensions = ["cogs.matchmaker"]
         for extension in initial_extensions:
             try:
                 await self.load_extension(extension)
@@ -67,10 +68,10 @@ class MatchmakerBot(commands.Bot):
             local_cmds = self.tree.get_commands()
             self.logger.info(f"[DEBUG] BOT内部で認識中のコマンド数: {len(local_cmds)}")
 
-            # 古いコマンドのキャッシュを一度完全にクリア
+            # 🚨 【修正】以下の行を削除しました（これのせいでコマンドが消えていました）
             # self.tree.clear_commands(guild=None)
             
-            # 再登録（同期）の実行
+            # そのまま Discord へ登録（同期）を実行！
             synced = await self.tree.sync()
             
             self.logger.info(f"[SUCCESS] {len(synced)} 個のコマンドを同期完了しました！")
