@@ -54,23 +54,26 @@ class SheetManager:
             logger.error(f"[ERROR] MAPシートの取得に失敗しました: {e}")
             return {}
 
-    def get_banpick_rules(self) -> list:
-        """「BanPick」シートからルール名と絵文字、説明を取得"""
+    def get_leaders(self) -> list:
+        """独立した「指導者」シートから文明と指導者の一覧を取得します"""
         try:
-            ws = self.sheet.worksheet("BanPick")
+            ws = self.sheet.worksheet("指導者")
             records = ws.get_all_records()
-            rules = []
+            leaders = []
             for row in records:
-                rule_name = str(row.get("ルール名", "")).strip()
-                if rule_name:
-                    rules.append({
-                        "ルール名": rule_name,
+                leader_name = str(row.get("指導者名", "")).strip()
+                civ_name = str(row.get("文明名", "")).strip()
+                if leader_name:
+                    leaders.append({
+                        "指導者名": leader_name,
+                        "文明名": civ_name,
                         "絵文字": str(row.get("絵文字", "")).strip(),
-                        "説明（備考）": str(row.get("説明（備考）", "")).strip()
+                        # 1を設定すると最初のグローバルBAN候補になる
+                        "グローバルBAN候補": int(row.get("グローバルBAN候補", 0) or 0)
                     })
-            return rules
+            return leaders
         except Exception as e:
-            logger.warning(f"[WARNING] BanPickシートが見つからないか取得に失敗しました: {e}")
+            logger.warning(f"[WARNING] 指導者シートの取得に失敗しました: {e}")
             return []
 
     def get_master_config(self) -> list:
