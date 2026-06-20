@@ -67,9 +67,9 @@ class SheetManager:
                     leaders.append({
                         "指導者名": leader_name,
                         "文明名": civ_name,
-                        "絵文字": str(row.get("絵文字", "")).strip(),
+                        "絵文字": str(row.get("絵文字（Discord ID）", "")).strip(),
                         # 1を設定すると最初のグローバルBAN候補になる
-                        "グローバルBAN候補": int(row.get("グローバルBAN候補", 0) or 0)
+                        "グローバルBAN": int(row.get("グローバルBANFLG", 0) or 0)
                     })
             return leaders
         except Exception as e:
