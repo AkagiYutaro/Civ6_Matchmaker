@@ -61,15 +61,18 @@ class SheetManager:
             records = ws.get_all_records()
             leaders = []
             for row in records:
+                # 👇 スプレッドシートから「No」列を取得する処理を追加
+                no_val = str(row.get("No", "")).strip()
                 leader_name = str(row.get("指導者名", "")).strip()
                 civ_name = str(row.get("文明名", "")).strip()
+                
                 if leader_name:
                     leaders.append({
+                        "No": no_val,  # 取得したNoを追加
                         "指導者名": leader_name,
                         "文明名": civ_name,
-                        "絵文字": str(row.get("絵文字（Discord ID）", "")).strip(),
-                        # 1を設定すると最初のグローバルBAN候補になる
-                        "グローバルBAN": int(row.get("グローバルBANFLG", 0) or 0)
+                        "絵文字": str(row.get("絵文字", "")).strip(),
+                        "グローバルBAN候補": int(row.get("グローバルBAN候補", 0) or 0)
                     })
             return leaders
         except Exception as e:
