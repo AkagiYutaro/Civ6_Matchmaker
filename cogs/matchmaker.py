@@ -147,25 +147,48 @@ class BanPickConfirmButton(discord.ui.Button):
             child.disabled = True
         await interaction.response.edit_message(view=self.parent_view)
         
-        # ご指定の文言で全員に通知
-        await interaction.followup.send(f"🎉 **BANPICK：{rule_name}**")
+        # 選択されたルールに応じた処理の分岐
+        if "ドラフト" in rule_name or "グローバルBAN" in rule_name:
+            # 今回作成したドラフト機能を呼び出す
+            from cogs.banpick import BanPickStartView
+            bp_start_view = BanPickStartView(
+                host=self.parent_view.host,
+                team_a=self.parent_view.team_a,
+                team_b=self.parent_view.team_b,
+                sheet_manager=self.parent_view.sheet_manager
+            )
+            await interaction.followup.send(
+                content=f"🎉 **BANPICK：{rule_name}**\n"
+                        f"ホスト <@{self.parent_view.host.id}> は、待機場に全員が揃ったら下のボタンを押してBAN/PICKを開始してください。\n"
+                        f"*(※自動的にチームVCへ移動します)*", 
+                view=bp_start_view
+            )
+        else:
+            # まだ実装されていない他のモードの場合
+            await interaction.followup.send(
+                content=f"🎉 **BANPICKモード：{rule_name}** が選択されました！\n"
+                        f"*(※このルールの自動UIは準備中です。口頭または手動で進行してください)*"
+            )
 
 class BanPickView(discord.ui.View):
-    def __init__(self, host: discord.Member, rules: list):
+    def __init__(self, host: discord.Member, rules: list, team_a: list, team_b: list, sheet_manager):
         super().__init__(timeout=None)
         self.host = host
+        self.team_a = team_a
+        self.team_b = team_b
+        self.sheet_manager = sheet_manager
         self.selected_rule = None
         
         self.confirm_button = BanPickConfirmButton(self)
         self.add_item(BanPickSelect(rules, self))
         self.add_item(self.confirm_button)
-
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # ホスト以外が触ろうとしたらブロック
         if interaction.user.id != self.host.id:
             await interaction.response.send_message("ホストのみがBAN/PICKルールを決定できます。", ephemeral=True)
             return False
         return True
+
 
 # ------------------------------------------
 # メインの募集・チーム分け用コンポーネント
@@ -381,24 +404,20 @@ class MatchmakerView(discord.ui.View):
             print(f"[WARNING] 統計データの記録中にエラーが発生しました: {e}")
 
         # ----------------------------------------------------
-        # 🎲 BAN/PICK ルール選択の提示 (別ファイルからインポートして実行)
+        # 🎲 BAN/PICK の開始 (別ファイルからインポートして実行)
         # ----------------------------------------------------
-        rules = []
-        if hasattr(self.sheet_manager, "get_banpick_rules"):
-            rules = self.sheet_manager.get_banpick_rules()
-            
-        if not rules:
-            # 万が一シートが存在しない・読み込めない場合のフォールバック(仮置き)
-            rules = [
-                {"ルール名": "完全ランダム", "絵文字": "🎲", "説明（備考）": "全員がランダムな指導者でプレイします。"},
-                {"ルール名": "1Ban 3Pick", "絵文字": "🚫", "説明（備考）": "各チーム1つの文明をBANし、3つの文明から1つを選びます。"}
-            ]
-            
-        # 別ファイルに分離した機能を呼び出す
-        from cogs.banpick import BanPickView
-        bp_view = BanPickView(host=self.host, rules=rules)
+        from cogs.banpick import BanPickStartView
+        
+        bp_view = BanPickStartView(
+            host=self.host, 
+            team_a=team_a, 
+            team_b=team_b, 
+            sheet_manager=self.sheet_manager
+        )
+        
         await interaction.followup.send(
-            content=f"ホスト <@{self.host.id}> は、続けてBAN/PICKのルールを決定してください。", 
+            content=f"ホスト <@{self.host.id}> は、待機場に全員が揃ったら下のボタンを押してBAN/PICKを開始してください。\n"
+                    f"*(※自動的にチームVCへ移動します)*", 
             view=bp_view
         )
 
@@ -611,6 +630,40 @@ class MatchmakerCog(commands.Cog):
 
         view = RegisterChannelView(self.bot.sheet_manager)
         await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="civ_banpick", description="BAN/PICKツールを単独で起動します。（チーム分け機能を使わずに直接開始する場合）")
+    @app_commands.describe(
+        rep_a="🔵 チームAの代表者（BAN選択の操作を行う人）",
+        rep_b="🔴 チームBの代表者（BAN選択の操作を行う人）",
+        team_size="チームの人数 (4v4なら4, 5v5なら5。※BAN数の自動計算に使われます)"
+    )
+    async def civ_banpick(self, interaction: discord.Interaction, rep_a: discord.Member, rep_b: discord.Member, team_size: int = 4):
+        # banpick.py がBAN数を「チーム人数 - 1」で計算できるよう、ダミーの要素でリストの長さを調整する
+        team_a_ids = [rep_a.id] + [0] * (team_size - 1)
+        team_b_ids = [rep_b.id] + [0] * (team_size - 1)
+        
+        # 仮のルールリスト (将来的にシートから取得可能にする設計)
+        rules = [
+            {"ルール名": "グローバルBAN ドラフト", "絵文字": "📝", "説明（備考）": "今回実装したグローバルBAN対応のドラフトモード"},
+            {"ルール名": "完全ランダム", "絵文字": "🎲", "説明（備考）": "全員がランダムな指導者でプレイします。"},
+            {"ルール名": "1Ban 3Pick", "絵文字": "🚫", "説明（備考）": "各チーム1つの文明をBANし、3つの文明から1つを選びます。"}
+        ]
+        
+        # モード選択Viewの呼び出し
+        bp_view = BanPickView(
+            host=interaction.user,
+            rules=rules,
+            team_a=team_a_ids,
+            team_b=team_b_ids,
+            sheet_manager=self.bot.sheet_manager
+        )
+        
+        await interaction.response.send_message(
+            content=f"⚔️ **BAN/PICKツール (手動起動)**\n"
+                    f"ホスト <@{interaction.user.id}> は、以下のメニューからBAN/PICKのモードを選択してください。\n"
+                    f"*(🔵 チームA代表: {rep_a.mention} / 🔴 チームB代表: {rep_b.mention})*",
+            view=bp_view
+        )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MatchmakerCog(bot))
