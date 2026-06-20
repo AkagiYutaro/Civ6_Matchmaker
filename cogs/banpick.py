@@ -56,7 +56,7 @@ class BanPickPhaseManager:
         embed.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
         
         # 生き残りリスト表示 (数が多いのでシンプルに)
-        survivor_names = [f"{L.get('絵文字','')} {L['指導者名']}" for L in survivors]
+        survivor_names = [f"{L.get('絵文字（Discord ID）（Discord ID）','')} {L['指導者名']}" for L in survivors]
         survivor_text = "、".join(survivor_names)
         if len(survivor_text) > 1000:
             survivor_text = survivor_text[:1000] + "...(省略)"
@@ -120,7 +120,7 @@ class TargetBanView(discord.ui.View):
             last_name = chunk[-1]["指導者名"][:3]
             placeholder = f"[{first_name}〜{last_name}] から選ぶ ({len(chunk)}人) ▼"
             
-            opts = [discord.SelectOption(label=L["指導者名"], description=L["文明名"], emoji=L.get("絵文字") or None) for L in chunk]
+            opts = [discord.SelectOption(label=L["指導者名"], description=L["文明名"], emoji=L.get("絵文字（Discord ID）（Discord ID）") or None) for L in chunk]
             sel = ChunkedBanSelect(opts, placeholder, required_bans)
             self.selects.append(sel)
             self.add_item(sel)
@@ -168,7 +168,7 @@ class GlobalBanView(discord.ui.View):
         self.banned_a = None
         self.banned_b = None
         
-        options = [discord.SelectOption(label=L["指導者名"], description=L["文明名"], emoji=L.get("絵文字") or None) for L in global_pool]
+        options = [discord.SelectOption(label=L["指導者名"], description=L["文明名"], emoji=L.get("絵文字（Discord ID）") or None) for L in global_pool]
         
         self.select_a = discord.ui.Select(placeholder="🔵 チームA代表: グローバルBANを選択", min_values=1, max_values=1, options=options)
         self.select_a.callback = self.callback_a
