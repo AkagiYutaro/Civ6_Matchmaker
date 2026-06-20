@@ -312,17 +312,36 @@ class BanPickStartView(discord.ui.View):
             all_leaders.append(leader_data)
 
         # グローバルBANFLGリストの抽出
-        global_pool = []
-        for L in all_leaders:
-            v = L.get("グローバルBANFLG","")
-            if v is None:
-                continue
+        # global_pool = []
+        # for L in all_leaders:
+        #     v = L.get("グローバルBANFLG","")
+        #     if v is None:
+        #         continue
 
-            try:
-                if int(str(v).strip()) == 1:
-                    global_pool.append(L)
-            except (ValueError, TypeError):
+        #     try:
+        #         if int(str(v).strip()) == 1:
+        #             global_pool.append(L)
+        #     except (ValueError, TypeError):
+        #         continue
+
+        global_pool = []
+        for i, row in enumerate(rows, start=1):
+            raw = row.get("グローバルBANFLG", "")
+            if raw is None:
+                logging.debug(f"行 {i}: 列が None のためスキップ")
                 continue
+            s = str(raw).strip()
+            if s == "":
+                logging.debug(f"行 {i}: 空文字のためスキップ")
+                continue
+            try:
+                if int(s) == 1:
+                    global_pool.append(row)
+                    logging.info(f"行 {i}: グローバルBANFLG==1 を取得しました -> {row}")
+                else:
+                    logging.debug(f"行 {i}: グローバルBANFLG は 1 ではありません -> {s}")
+            except (ValueError, TypeError):
+                logging.warning(f"行 {i}: 数値変換できない値をスキップ -> {raw}")
                 
         # 💡【重要】Discordのドロップダウンは最大25個の制限があるため、安全装置として超える場合は切り詰める
         if len(global_pool) > 25:
