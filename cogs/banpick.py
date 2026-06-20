@@ -41,21 +41,22 @@ class BanPickPhaseManager:
             await self.announce_results()
 
     async def announce_results(self):
-        # 最終的にBANされた全リスト (重複防止のため 指導者名_文明名 のValueで管理)
-        final_banned = set(self.global_banned + self.banned_a + self.banned_b)
+        # 最終的にBANされた uid (固有の管理番号) のリスト
+        final_banned_uids = set(self.global_banned + self.banned_a + self.banned_b)
         
         # ピック可能(生き残った)文明
-        survivors = [L for L in self.all_leaders if f"{L['指導者名']}_{L['文明名']}" not in final_banned]
+        survivors = [L for L in self.all_leaders if L['uid'] not in final_banned_uids]
         
         embed = discord.Embed(title="🎉 CIV6 BAN/PICK 最終結果", color=discord.Color.gold())
         
-        # BANされた「指導者名_文明名」から表示用に「指導者名」だけを抽出する関数
-        def format_banned(banned_values):
+        # uid のリストから元の「指導者名」だけを抽出する関数
+        def format_banned(uid_list):
             names = []
-            for val in banned_values:
-                parts = val.split('_')
-                names.append(parts[0] if len(parts) > 0 else val)
-            return "、".join(names) or "なし"
+            for uid in uid_list:
+                leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
+                if leader:
+                    names.append(leader['指導者名'])
+            return "、".join(names) if names else "なし"
 
         # BANリスト表示
         ban_text = f"**【🌐 グローバルBAN】**\n" + format_banned(self.global_banned) + "\n\n"
@@ -105,12 +106,12 @@ class ConfirmTargetBanButton(discord.ui.Button):
             return
             
         # 選択内容を集約
-        selected_leaders = []
+        selected_uids = []
         for s in view.selects:
-            selected_leaders.extend(s.values)
+            selected_uids.extend(s.values)
             
         # マネージャーに完了を報告
-        await view.manager.report_ban_done(view.team_name, selected_leaders, interaction)
+        await view.manager.report_ban_done(view.team_name, selected_uids, interaction)
 
 class TargetBanView(discord.ui.View):
     def __init__(self, rep_id, required_bans, chunks, manager, team_name):
@@ -130,13 +131,12 @@ class TargetBanView(discord.ui.View):
             
             opts = []
             for L in chunk:
-                # 重複エラーを防ぐため、Valueに文明名を結合して完全に一意のIDにする
-                value_str = f"{L['指導者名']}_{L['文明名']}"
+                # 完全に一意な uid をValueに設定する
                 opts.append(discord.SelectOption(
                     label=L["指導者名"], 
                     description=L["文明名"], 
                     emoji=L.get("絵文字") or None,
-                    value=value_str
+                    value=L["uid"]
                 ))
             
             sel = ChunkedBanSelect(opts, placeholder, required_bans)
@@ -192,13 +192,12 @@ class GlobalBanView(discord.ui.View):
         
         options = []
         for L in global_pool:
-            # 重複エラー回避のためValueを一意化
-            value_str = f"{L['指導者名']}_{L['文明名']}"
+            # 完全に一意な uid をValueに設定する
             options.append(discord.SelectOption(
                 label=L["指導者名"], 
                 description=L["文明名"], 
                 emoji=L.get("絵文字") or None,
-                value=value_str
+                value=L["uid"]
             ))
         
         self.select_a = discord.ui.Select(placeholder="🔵 チームA代表: グローバルBANを選択", min_values=1, max_values=1, options=options)
@@ -234,8 +233,8 @@ class GlobalBanView(discord.ui.View):
             # === 次のフェーズへの移行処理 ===
             banned_global = [b for b in [self.banned_a, self.banned_b] if b]
             
-            # GBで選ばれた文明を除外したリストを作る (一意なValueで照合)
-            available_leaders = [L for L in self.all_leaders if f"{L['指導者名']}_{L['文明名']}" not in banned_global]
+            # GBで選ばれた文明を除外したリストを作る (uidで照合)
+            available_leaders = [L for L in self.all_leaders if L["uid"] not in banned_global]
             # 名前でソート
             available_leaders.sort(key=lambda x: x["指導者名"])
             
@@ -248,12 +247,13 @@ class GlobalBanView(discord.ui.View):
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
             
             # BANされた名前を表示用にフォーマット
-            def format_banned(banned_values):
+            def format_banned(uid_list):
                 names = []
-                for val in banned_values:
-                    parts = val.split('_')
-                    names.append(parts[0] if len(parts) > 0 else val)
-                return ", ".join(names)
+                for uid in uid_list:
+                    leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
+                    if leader:
+                        names.append(leader['指導者名'])
+                return ", ".join(names) if names else "なし"
 
             display_banned = format_banned(banned_global)
             await interaction.response.edit_message(content=f"🌐 **グローバルBANが確定しました: {display_banned}**\n続いて各チームのBANフェーズに移行します。", view=None)
@@ -302,13 +302,21 @@ class BanPickStartView(discord.ui.View):
             else:
                 await interaction.followup.send("⚠️ 「チームA」「チームB」という名前のVCが見つからなかったため、移動をスキップしました。", ephemeral=True)
 
-        # 2. リーダーリストの取得とBAN数の計算
-        all_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
-        if not all_leaders:
+        # 2. リーダーリストの取得
+        raw_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
+        if not raw_leaders:
             # 仮データ
-            all_leaders = [{"指導者名": f"指導者{i}", "文明名": f"文明{i}", "グローバルBAN候補": 1 if i <= 10 else 0} for i in range(1, 78)]
+            raw_leaders = [{"指導者名": f"指導者{i}", "文明名": f"文明{i}", "グローバルBAN候補": 1 if i <= 10 else 0} for i in range(1, 78)]
             
-        # グローバルBAN候補リストの抽出 (空白や文字列の「1」にも完全対応)
+        # 💡 [重要修正] Discordの重複エラーを絶対に起こさないための自動採番システム
+        all_leaders = []
+        for i, L in enumerate(raw_leaders):
+            leader_data = L.copy()
+            # 内部処理用の完全にユニークな管理番号(uid)を付与。名前が被っていても区別可能。
+            leader_data['uid'] = f"leader_id_{i}"
+            all_leaders.append(leader_data)
+
+        # グローバルBAN候補リストの抽出
         global_pool = []
         for L in all_leaders:
             try:
