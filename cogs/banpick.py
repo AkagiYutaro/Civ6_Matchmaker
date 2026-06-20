@@ -312,46 +312,53 @@ class BanPickStartView(discord.ui.View):
             all_leaders.append(leader_data)
 
         # グローバルBANFLGリストの抽出
-        # global_pool = []
-        # for L in all_leaders:
-        #     v = L.get("グローバルBANFLG","")
-        #     if v is None:
-        #         continue
-
-        #     try:
-        #         if int(str(v).strip()) == 1:
-        #             global_pool.append(L)
-        #     except (ValueError, TypeError):
-        #         continue
-
-        logger = logging.getLogger('discord.banpick')
-        # logger の設定は既にある想定。なければ以下を追加:
-        # logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
         global_pool = []
-        for i, row in enumerate(all_leaders, start=1):
-            raw = row.get("グローバルBANFLG", "")
-            # None の場合
-            if raw is None:
-                logger.debug(f"行 {i}: 列 'グローバルBANFLG' が None のためスキップ (row uid={row.get('uid')})")
+        for L in all_leaders:
+            v = L.get("グローバルBANFLG","")
+
+#デバッグ追加start
+            raw_val = L.get("グローバルBANFLG")
+            
+            # --- ここからデバッグ用ログ出力 ---
+            # 値そのものと、Python内部で認識されている型を表示します
+            print(f"[DEBUG] BANFLG: '{raw_val}' | Type: {type(raw_val)}")
+#デバッグ追加END
+
+            if v is None:
                 continue
 
-            s = str(raw).strip()
-            # 空文字の場合
-            if s == "":
-                logger.debug(f"行 {i}: 列 'グローバルBANFLG' が空文字のためスキップ (value='{raw}', uid={row.get('uid')})")
-                continue
-
-            # 全角数字や yes/no 等を許容したい場合はここで変換ルールを追加可能
             try:
-                if int(s) == 1:
-                    global_pool.append(row)
-                    logger.info(f"[取得OK] 行 {i}: グローバルBANFLG==1 を取得 -> uid={row.get('uid')}, unique_name={row.get('unique_name')}")
-                else:
-                    logger.debug(f"[非該当] 行 {i}: グローバルBANFLG は 1 ではありません -> '{s}' (uid={row.get('uid')})")
+                if int(str(v).strip()) == 1:
+                    global_pool.append(L)
             except (ValueError, TypeError):
-                # 数値変換できない値はログに残してスキップ
-                logger.warning(f"[変換失敗] 行 {i}: 数値変換できない値をスキップ -> raw={raw} (uid={row.get('uid')})")
+                continue
+
+        # logger = logging.getLogger('discord.banpick')
+
+        # global_pool = []
+        # for i, row in enumerate(all_leaders, start=1):
+        #     raw = row.get("グローバルBANFLG", "")
+        #     # None の場合
+        #     if raw is None:
+        #         logger.debug(f"行 {i}: 列 'グローバルBANFLG' が None のためスキップ (row uid={row.get('uid')})")
+        #         continue
+
+        #     s = str(raw).strip()
+        #     # 空文字の場合
+        #     if s == "":
+        #         logger.debug(f"行 {i}: 列 'グローバルBANFLG' が空文字のためスキップ (value='{raw}', uid={row.get('uid')})")
+        #         continue
+
+        #     # 全角数字や yes/no 等を許容したい場合はここで変換ルールを追加可能
+        #     try:
+        #         if int(s) == 1:
+        #             global_pool.append(row)
+        #             logger.info(f"[取得OK] 行 {i}: グローバルBANFLG==1 を取得 -> uid={row.get('uid')}, unique_name={row.get('unique_name')}")
+        #         else:
+        #             logger.debug(f"[非該当] 行 {i}: グローバルBANFLG は 1 ではありません -> '{s}' (uid={row.get('uid')})")
+        #     except (ValueError, TypeError):
+        #         # 数値変換できない値はログに残してスキップ
+        #         logger.warning(f"[変換失敗] 行 {i}: 数値変換できない値をスキップ -> raw={raw} (uid={row.get('uid')})")
                 
         # 💡【重要】Discordのドロップダウンは最大25個の制限があるため、安全装置として超える場合は切り詰める
         if len(global_pool) > 25:
