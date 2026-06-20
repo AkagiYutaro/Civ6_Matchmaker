@@ -291,7 +291,7 @@ class BanPickStartView(discord.ui.View):
         # 2. リーダーリストの取得と 💡完全に一意な名前の生成
         raw_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
         if not raw_leaders:
-            raw_leaders = [{"指導者名": f"指導者{i}", "文明名": f"文明{i}", "グローバルBAN候補": 1 if i <= 10 else 0} for i in range(1, 78)]
+            raw_leaders = [{"指導者名": f"指導者{i}", "文明名": f"文明{i}", "グローバルBANFLG": 1 if i <= 10 else 0} for i in range(1, 78)]
             
         all_leaders = []
         for i, L in enumerate(raw_leaders):
@@ -311,15 +311,18 @@ class BanPickStartView(discord.ui.View):
             
             all_leaders.append(leader_data)
 
-        # グローバルBAN候補リストの抽出
+        # グローバルBANFLGリストの抽出
         global_pool = []
         for L in all_leaders:
-            v = L.get("グローバルBAN候補","")
+            v = L.get("グローバルBANFLG","")
+            if v is None:
+                continue
+
             try:
                 if int(str(v).strip()) == 1:
                     global_pool.append(L)
-            except ValueError:
-                pass
+            except (ValueError, TypeError):
+                continue
                 
         # 💡【重要】Discordのドロップダウンは最大25個の制限があるため、安全装置として超える場合は切り詰める
         if len(global_pool) > 25:
