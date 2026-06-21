@@ -194,8 +194,8 @@ class TargetBanView(discord.ui.View):
                 label_name = f"{L['No']}. {L['clean_name']}"
                 opts.append(discord.SelectOption(
                     label=label_name[:100], 
-                    description=str(L.get("文明名", ""))[:100], 
                     emoji=L.get('emoji_obj'), # 事前生成したオブジェクトを使用
+                    description=str(L.get("文明名", ""))[:100], 
                     value=L["uid"]
                 ))
             
@@ -251,8 +251,8 @@ class GlobalBanView(discord.ui.View):
             label_name = f"{L['No']}. {L['clean_name']}"
             options.append(discord.SelectOption(
                 label=label_name[:100], 
-                description=str(L.get("文明名", ""))[:100], 
                 emoji=L.get('emoji_obj'), # 事前生成したオブジェクトを使用
+                description=str(L.get("文明名", ""))[:100], 
                 value=L["uid"]
             ))
         
@@ -320,14 +320,14 @@ class GlobalBanView(discord.ui.View):
 
             inter_embed = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
-                description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
+                description="グローバルBANを完了しました。続いて各チームのBANを行います。", 
                 color=discord.Color.blue()
             )
             inter_embed.add_field(name="🌐 確定したグローバルBAN", value=format_banned(banned_global), inline=False)
             
             inter_embed.add_field(name=f"🔵 チームA ({len(list_a)}人)", value=display_a, inline=True)
             inter_embed.add_field(name=f"🔴 チームB ({len(list_b)}人)", value=display_b, inline=True)
-
+            
             await interaction.response.edit_message(content=None, embed=inter_embed, view=None)
             
             chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
