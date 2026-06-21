@@ -388,22 +388,22 @@ class BanPickStartView(discord.ui.View):
             
             leader_name = leader_data.get('指導者名', 'Unknown')
             
-            # 💡 絵文字の組み立て（厳格なチェックを回避して直接オブジェクト化する）
+            # 💡 絵文字の組み立て（厳格化し、不完全なデータはエラー回避のため絵文字なしにする）
             emoji_nm = str(leader_data.get('Emoji_Discord_Nm', '')).strip()
             emoji_id = str(leader_data.get('Emoji_Discord_ID', '')).strip()
             
             emoji_obj = None
             emoji_text = ""
             
-            # 絵文字IDが「数字」であるかだけをチェックし、強制的に絵文字として登録する
-            if emoji_id.isdigit():
-                # 名前が空欄だったり日本語だったりしても、とりあえず「civ」などの適当な英字を当てることでエラーを回避
-                safe_name = emoji_nm if emoji_nm else "icon"
-                
-                # from_str を使わず、明示的にカスタム絵文字オブジェクトを生成する
-                emoji_obj = discord.PartialEmoji(name=safe_name, id=int(emoji_id))
-                emoji_text = f"<:{safe_name}:{emoji_id}>"
-            elif emoji_id: # もしUnicode絵文字(🌎など)が直接入っていた場合の保険
+            # 名前とIDの両方が入力されており、かつIDが数字である場合のみ絵文字として処理
+            if emoji_nm and emoji_id.isdigit():
+                try:
+                    emoji_obj = discord.PartialEmoji(name=emoji_nm, id=int(emoji_id))
+                    emoji_text = f"<:{emoji_nm}:{emoji_id}>"
+                except Exception as e:
+                    logger.warning(f"絵文字パース失敗 [{emoji_nm}]: {e}")
+            elif emoji_id and not emoji_id.isdigit():
+                # Unicode絵文字(🍎など)が直接入力されていた場合の保険
                 emoji_obj = emoji_id
                 emoji_text = emoji_id
             
