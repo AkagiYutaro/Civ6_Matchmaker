@@ -313,53 +313,25 @@ class BanPickStartView(discord.ui.View):
 
         # グローバルBANFLGリストの抽出
         global_pool = []
+        print("\n=== [DEBUG] グローバルBANFLG 判定ログ開始 ===")
         for L in all_leaders:
-            v = L.get("グローバルBANFLG","")
-
-#デバッグ追加start
-            raw_val = L.get("グローバルBANFLG")
+            # 修正した「グローバルBANFLG」を取得。保険として旧名称も見る
+            val = L.get("グローバルBANFLG", L.get("グローバルBAN候補"))
             
-            # --- ここからデバッグ用ログ出力 ---
-            # 値そのものと、Python内部で認識されている型を表示します
-            print(f"[DEBUG] BANFLG: '{raw_val}' | Type: {type(raw_val)}")
-#デバッグ追加END
-
-            if v is None:
-                continue
-
+            is_match = False
             try:
-                if int(str(v).strip()) == 1:
+                # 取得した値が '1' または 1 であれば抽出する
+                if int(str(val or 0).strip()) == 1:
                     global_pool.append(L)
-            except (ValueError, TypeError):
-                continue
-
-        # logger = logging.getLogger('discord.banpick')
-
-        # global_pool = []
-        # for i, row in enumerate(all_leaders, start=1):
-        #     raw = row.get("グローバルBANFLG", "")
-        #     # None の場合
-        #     if raw is None:
-        #         logger.debug(f"行 {i}: 列 'グローバルBANFLG' が None のためスキップ (row uid={row.get('uid')})")
-        #         continue
-
-        #     s = str(raw).strip()
-        #     # 空文字の場合
-        #     if s == "":
-        #         logger.debug(f"行 {i}: 列 'グローバルBANFLG' が空文字のためスキップ (value='{raw}', uid={row.get('uid')})")
-        #         continue
-
-        #     # 全角数字や yes/no 等を許容したい場合はここで変換ルールを追加可能
-        #     try:
-        #         if int(s) == 1:
-        #             global_pool.append(row)
-        #             logger.info(f"[取得OK] 行 {i}: グローバルBANFLG==1 を取得 -> uid={row.get('uid')}, unique_name={row.get('unique_name')}")
-        #         else:
-        #             logger.debug(f"[非該当] 行 {i}: グローバルBANFLG は 1 ではありません -> '{s}' (uid={row.get('uid')})")
-        #     except (ValueError, TypeError):
-        #         # 数値変換できない値はログに残してスキップ
-        #         logger.warning(f"[変換失敗] 行 {i}: 数値変換できない値をスキップ -> raw={raw} (uid={row.get('uid')})")
+                    is_match = True
+            except ValueError:
+                pass
                 
+            # ご要望のデバッグログ出力！
+            print(f"[DEBUG] 指導者: {L.get('指導者名', 'Unknown'):<15} | 値: '{val}' | 型: {type(val)} | 1と判定: {is_match}")
+            
+        print(f"=== [DEBUG] 判定ログ終了: 抽出数 {len(global_pool)} 人 ===\n")           
+        
         # 💡【重要】Discordのドロップダウンは最大25個の制限があるため、安全装置として超える場合は切り詰める
         if len(global_pool) > 25:
             global_pool = global_pool[:25]
