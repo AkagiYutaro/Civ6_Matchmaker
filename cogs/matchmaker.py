@@ -5,6 +5,7 @@ import itertools
 import random
 import os
 import datetime
+import io
 
 from cogs.map_voting import MapVoteView
 
@@ -663,6 +664,27 @@ class MatchmakerCog(commands.Cog):
                     f"ホスト <@{interaction.user.id}> は、以下のメニューからBAN/PICKのモードを選択してください。\n"
                     f"*(🔵 チームA代表: {rep_a.mention} / 🔴 チームB代表: {rep_b.mention})*",
             view=bp_view
+        )
+
+    @bot.tree.command(name="export_emojis", description="【管理者用】サーバーの絵文字一覧をCSVで出力します")
+    @app_commands.default_permissions(administrator=True)
+    async def export_emojis(interaction: discord.Interaction):
+        # サーバーに登録されている全絵文字を取得
+        emojis = interaction.guild.emojis
+        if not emojis:
+            return await interaction.response.send_message("カスタム絵文字がありません。", ephemeral=True)
+        
+        # CSV形式のテキストを作成
+        text_content = "Emoji_Discord_Nm,Emoji_Discord_ID\n"
+        for emoji in emojis:
+            text_content += f"{emoji.name},{emoji.id}\n"
+            
+        # テキストをファイル(CSV)に変換してDiscordに送信
+        file = discord.File(io.StringIO(text_content), filename="emojis.csv")
+        await interaction.response.send_message(
+            "絵文字一覧を出力しました！ダウンロードしてスプレッドシートに貼り付けてください。", 
+            file=file, 
+            ephemeral=True
         )
 
 async def setup(bot: commands.Bot):
