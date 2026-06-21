@@ -1,28 +1,86 @@
 import discord
 import random
 import logging
+import asyncio
+import gspread
 
 logger = logging.getLogger('discord.banpick')
+
+# ==========================================
+# スプレッドシート カウントアップ用非同期処理
+# ==========================================
+async def update_ban_count_in_sheet(sheet_manager, banned_names):
+    """
+    BANされた指導者の名前リストを受け取り、非同期でスプレッドシートのBAN回数を更新する。
+    """
+    if not sheet_manager or not banned_names:
+        return
+        
+    def _update():
+        try:
+            ws = sheet_manager.sheet.worksheet("指導者")
+            records = ws.get_all_records()
+            headers = ws.row_values(1)
+            
+            # BAN回数列、PICK回数列がない場合は自動追加
+            needs_update = False
+            if "BAN回数" not in headers:
+                headers.append("BAN回数")
+                needs_update = True
+            if "PICK回数" not in headers:
+                headers.append("PICK回数")
+                needs_update = True
+                
+            if needs_update:
+                ws.update("A1", [headers])
+                
+            ban_col_idx = headers.index("BAN回数") + 1
+            
+            updates = []
+            for row_idx, row in enumerate(records, start=2):
+                leader_name = str(row.get("指導者名", "")).strip()
+                if leader_name in banned_names:
+                    current_val = row.get("BAN回数", 0)
+                    try:
+                        count = int(current_val) if current_val != "" else 0
+                    except ValueError:
+                        count = 0
+                    
+                    # 更新用データの構築
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(row_idx, ban_col_idx),
+                        'values': [[count + 1]]
+                    })
+                    
+            if updates:
+                ws.batch_update(updates)
+                logger.info(f"[SUCCESS] スプレッドシートのBAN回数を更新しました: {banned_names}")
+        except Exception as e:
+            logger.error(f"[ERROR] BAN回数の更新に失敗: {e}")
+
+    # Discord Botのメイン処理を止めないようにバックグラウンド(別スレッド)で実行
+    await asyncio.to_thread(_update)
+
 
 # ==========================================
 # フェーズ管理用クラス
 # ==========================================
 class BanPickPhaseManager:
     """AチームとBチームの進行状況を管理し、両方完了したら結果を出すマネージャー"""
-    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned):
+    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned, sheet_manager):
         self.original_interaction = interaction
         self.host = host
         self.team_a = team_a
         self.team_b = team_b
         self.all_leaders = all_leaders
         self.global_banned = global_banned
+        self.sheet_manager = sheet_manager
         
         self.banned_a = []
         self.banned_b = []
         self.a_done = False
         self.b_done = False
         
-        # 進行用のメッセージインスタンスを保持
         self.msg_a = None
         self.msg_b = None
 
@@ -41,6 +99,14 @@ class BanPickPhaseManager:
             await self.announce_results()
 
     async def announce_results(self):
+        # ターゲットBANのカウントアップ処理をバックグラウンドで実行
+        team_banned_uids = self.banned_a + self.banned_b
+        team_banned_names = [L['clean_name'] for L in self.all_leaders if L['uid'] in team_banned_uids]
+        if team_banned_names:
+            self.original_interaction.client.loop.create_task(
+                update_ban_count_in_sheet(self.sheet_manager, team_banned_names)
+            )
+
         # 最終的にBANされた uid のリスト
         final_banned_uids = set(self.global_banned + self.banned_a + self.banned_b)
         
@@ -49,14 +115,14 @@ class BanPickPhaseManager:
         
         embed = discord.Embed(title="🎉 CIV6 BAN/PICK 最終結果", color=discord.Color.gold())
         
-        # uid のリストから「No. 指導者名」を抽出する関数
+        # uid のリストから絵文字付きの表示名(unique_name)を抽出
         def format_banned(uid_list):
             names = []
             for uid in uid_list:
                 leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
                 if leader:
                     names.append(leader['unique_name'])
-            return "、".join(names) if names else "なし"
+            return "、\n".join(names) if names else "なし"
 
         # BANリスト表示
         ban_text = f"**【🌐 グローバルBAN】**\n" + format_banned(self.global_banned) + "\n\n"
@@ -64,13 +130,13 @@ class BanPickPhaseManager:
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_banned(self.banned_b)
         embed.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
         
-        # 生き残りリスト表示 (数が多いのでシンプルに)
-        survivor_names = [f"{L.get('絵文字','')} {L['unique_name']}" for L in survivors]
-        survivor_text = "、".join(survivor_names)
-        if len(survivor_text) > 1000:
-            survivor_text = survivor_text[:1000] + "...(省略)"
+        # 生き残りリスト表示
+        survivor_texts = [L['unique_name'] for L in survivors]
+        survivor_display = "、".join(survivor_texts)
+        if len(survivor_display) > 1024:
+            survivor_display = survivor_display[:1000] + "...(以下略)"
             
-        embed.add_field(name=f"✅ ピック可能な文明 ({len(survivors)}人)", value=survivor_text, inline=False)
+        embed.add_field(name=f"✅ ピック可能な文明 ({len(survivors)}人)", value=survivor_display, inline=False)
         embed.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
         
         await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embed=embed)
@@ -89,7 +155,6 @@ class ChunkedBanSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # 選ぶたびにボタンの数値をリアルタイム更新する
         await self.view.update_button(interaction)
 
 class ConfirmTargetBanButton(discord.ui.Button):
@@ -105,12 +170,10 @@ class ConfirmTargetBanButton(discord.ui.Button):
             await interaction.response.send_message(f"⚠️ 合計 **{self.required_bans}個** 選んでください！（現在: {total_selected}個）", ephemeral=True)
             return
             
-        # 選択内容を集約
         selected_uids = []
         for s in view.selects:
             selected_uids.extend(s.values)
             
-        # マネージャーに完了を報告
         await view.manager.report_ban_done(view.team_name, selected_uids, interaction)
 
 class TargetBanView(discord.ui.View):
@@ -122,21 +185,32 @@ class TargetBanView(discord.ui.View):
         self.team_name = team_name
         self.selects = []
         
-        # チャンク(25個ずつのリスト)ごとにドロップダウンを作る
         for chunk in chunks:
             if not chunk: continue
-            
-            # ヘッダーは元の名前を使いつつ、リストの中身は一意な名前にする
-            first_name = chunk[0]["指導者名"][:3]
-            last_name = chunk[-1]["指導者名"][:3]
+            first_name = chunk[0]["clean_name"][:3]
+            last_name = chunk[-1]["clean_name"][:3]
             placeholder = f"[{first_name}〜{last_name}] から選ぶ ({len(chunk)}人) ▼"
             
             opts = []
             for L in chunk:
+                # 💡 DiscordのSelectMenuに絵文字を表示するための正しいパース処理
+                emoji_obj = None
+                emoji_str = str(L.get("絵文字", "")).strip()
+                if emoji_str:
+                    if emoji_str.startswith('<') and emoji_str.endswith('>'):
+                        try:
+                            emoji_obj = discord.PartialEmoji.from_str(emoji_str)
+                        except:
+                            pass
+                    else:
+                        emoji_obj = emoji_str
+                        
+                # Label自体には絵文字を結合せず綺麗に保ち、emojiプロパティでアイコンを描画させる
+                label_name = f"{L['No']}. {L['clean_name']}"
                 opts.append(discord.SelectOption(
-                    label=L["unique_name"],  # 💡 完全に一意の「No. 指導者名」を表示
-                    description=L["文明名"], 
-                    emoji=L.get("絵文字") or None,
+                    label=label_name[:100], 
+                    description=str(L.get("文明名", ""))[:100], 
+                    emoji=emoji_obj,
                     value=L["uid"]
                 ))
             
@@ -189,10 +263,23 @@ class GlobalBanView(discord.ui.View):
         
         options = []
         for L in global_pool:
+            # 💡 絵文字パース処理
+            emoji_obj = None
+            emoji_str = str(L.get("絵文字", "")).strip()
+            if emoji_str:
+                if emoji_str.startswith('<') and emoji_str.endswith('>'):
+                    try:
+                        emoji_obj = discord.PartialEmoji.from_str(emoji_str)
+                    except:
+                        pass
+                else:
+                    emoji_obj = emoji_str
+                    
+            label_name = f"{L['No']}. {L['clean_name']}"
             options.append(discord.SelectOption(
-                label=L["unique_name"], # 💡 完全に一意の「No. 指導者名」を表示
-                description=L["文明名"], 
-                emoji=L.get("絵文字") or None,
+                label=label_name[:100], 
+                description=str(L.get("文明名", ""))[:100], 
+                emoji=emoji_obj,
                 value=L["uid"]
             ))
         
@@ -226,27 +313,57 @@ class GlobalBanView(discord.ui.View):
         if self.select_a.disabled and self.select_b.disabled:
             banned_global = [b for b in [self.banned_a, self.banned_b] if b]
             
-            # GBで選ばれた文明を除外したリストを作る (uidで照合)
+            # 💡 グローバルBANのカウントアップ処理をバックグラウンドで実行
+            banned_names = [L['clean_name'] for L in self.all_leaders if L['uid'] in banned_global]
+            if banned_names:
+                interaction.client.loop.create_task(
+                    update_ban_count_in_sheet(self.sheet_manager, banned_names)
+                )
+            
+            # GBで選ばれた文明を除外したリストを作る
             available_leaders = [L for L in self.all_leaders if L["uid"] not in banned_global]
-            available_leaders.sort(key=lambda x: x["指導者名"])
+            available_leaders.sort(key=lambda x: x["clean_name"])
             
-            # 25個ずつに分割
-            chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
-            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global)
+            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager)
             
-            view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
-            view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
-            
+            # 💡 要件2: 中間発表 (フェーズ移行) UIの構築
             def format_banned(uid_list):
                 names = []
                 for uid in uid_list:
                     leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
                     if leader:
-                        names.append(leader['unique_name'])
-                return ", ".join(names) if names else "なし"
+                        names.append(leader['unique_name']) # 結合された絵文字付き文字列を使用
+                return "、\n".join(names) if names else "なし"
+                
+            # 生き残りリストのテキスト作成
+            survivor_texts = [L['unique_name'] for L in available_leaders]
+            survivor_display = "、".join(survivor_texts)
+            if len(survivor_display) > 1024:
+                survivor_display = survivor_display[:1000] + "...(以下略)"
 
-            display_banned = format_banned(banned_global)
-            await interaction.response.edit_message(content=f"🌐 **グローバルBANが確定しました: {display_banned}**\n続いて各チームのBANフェーズに移行します。", view=None)
+            inter_embed = discord.Embed(
+                title="【フェーズ2: ターゲットBAN】", 
+                description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
+                color=discord.Color.blue()
+            )
+            inter_embed.add_field(name="🌐 確定したグローバルBAN", value=format_banned(banned_global), inline=False)
+            
+            # チーム一覧フィールド
+            team_a_str = "\n".join([f"・<@{pid}>" for pid in self.team_a]) if self.team_a else f"・<@{self.host.id}>"
+            team_b_str = "\n".join([f"・<@{pid}>" for pid in self.team_b]) if self.team_b else f"・<@{self.host.id}>"
+            
+            inter_embed.add_field(name=f"🔵 チームA (代表: <@{self.rep_a}>)", value=f"{team_a_str}\n\n👉 これから **{self.required_bans}** 個BANします", inline=True)
+            inter_embed.add_field(name=f"🔴 チームB (代表: <@{self.rep_b}>)", value=f"{team_b_str}\n\n👉 これから **{self.required_bans}** 個BANします", inline=True)
+            
+            inter_embed.add_field(name=f"✅ 現在選択可能な指導者 ({len(available_leaders)}人)", value=survivor_display, inline=False)
+
+            # メッセージを中間発表UIに差し替える
+            await interaction.response.edit_message(content=None, embed=inter_embed, view=None)
+            
+            # その直後、各チーム向けのドロップダウンメニューを別々のメッセージとして送信
+            chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
+            view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
+            view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
             
             msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n*(※管理者は代理操作可能です)*", view=view_a)
             msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n*(※管理者は代理操作可能です)*", view=view_b)
@@ -288,7 +405,7 @@ class BanPickStartView(discord.ui.View):
                     except Exception as e:
                         logger.error(f"VC移動エラー: {e}")
 
-        # 2. リーダーリストの取得と 💡完全に一意な名前の生成
+        # 2. リーダーリストの取得とデータ整形
         raw_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
         if not raw_leaders:
             raw_leaders = [{"指導者名": f"指導者{i}", "文明名": f"文明{i}", "グローバルBANFLG": 1 if i <= 10 else 0} for i in range(1, 78)]
@@ -297,42 +414,37 @@ class BanPickStartView(discord.ui.View):
         for i, L in enumerate(raw_leaders):
             leader_data = L.copy()
             
-            # スプレッドシートから「No」を取得。もし取得できなかった場合はループの番号を振る
             no_val = str(leader_data.get("No", "")).strip()
-            if not no_val:
-                no_val = str(i + 1)
-                
-            # 「No. 指導者名」という完全に一意の文字列を作成
-            unique_name = f"{no_val}. {leader_data.get('指導者名', 'Unknown')}"
+            if not no_val: no_val = str(i + 1)
             
-            # 画面表示(label)も内部ID(value)もこれに統一する
-            leader_data['unique_name'] = unique_name
-            leader_data['uid'] = unique_name
+            leader_name = leader_data.get('指導者名', 'Unknown')
+            emoji_str = str(leader_data.get('絵文字', '')).strip()
+            
+            # ドロップダウン裏側用の完全なユニークID
+            unique_id = f"leader_id_{i}_{leader_name}"
+            
+            # 💡 テキスト出力用 (No. 指導者名 <:Discord_ID:>)
+            display_name = f"{no_val}. {leader_name}"
+            if emoji_str:
+                display_name += f" {emoji_str}"
+                
+            leader_data['unique_name'] = display_name   # テキスト表示用（絵文字結合済み）
+            leader_data['clean_name'] = leader_name     # 処理・シート更新用
+            leader_data['No'] = no_val
+            leader_data['uid'] = unique_id
             
             all_leaders.append(leader_data)
 
-        # グローバルBANFLGリストの抽出
+        # グローバルBAN候補リストの抽出
         global_pool = []
-        print("\n=== [DEBUG] グローバルBANFLG 判定ログ開始 ===")
         for L in all_leaders:
-            # 修正した「グローバルBANFLG」を取得。保険として旧名称も見る
             val = L.get("グローバルBANFLG", L.get("グローバルBAN候補"))
-            
-            is_match = False
             try:
-                # 取得した値が '1' または 1 であれば抽出する
                 if int(str(val or 0).strip()) == 1:
                     global_pool.append(L)
-                    is_match = True
             except ValueError:
                 pass
                 
-            # ご要望のデバッグログ出力！
-            print(f"[DEBUG] 指導者: {L.get('指導者名', 'Unknown'):<15} | 値: '{val}' | 型: {type(val)} | 1と判定: {is_match}")
-            
-        print(f"=== [DEBUG] 判定ログ終了: 抽出数 {len(global_pool)} 人 ===\n")           
-        
-        # 💡【重要】Discordのドロップダウンは最大25個の制限があるため、安全装置として超える場合は切り詰める
         if len(global_pool) > 25:
             global_pool = global_pool[:25]
         
