@@ -130,13 +130,14 @@ class BanPickPhaseManager:
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_banned(self.banned_b)
         embed.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
         
-        # 生き残りリスト表示
+        # 生き残りリスト表示 (チーム分けUIのように左右に分けて表示)
         survivor_texts = [L['unique_name'] for L in survivors]
-        survivor_display = "、".join(survivor_texts)
+        survivor_display = "\n".join(survivor_texts)
         if len(survivor_display) > 1024:
-            survivor_display = survivor_display[:1000] + "...(以下略)"
+            survivor_display = survivor_display[:1000] + "...\n(以下略)"
             
-        embed.add_field(name=f"✅ ピック可能な文明 ({len(survivors)}人)", value=survivor_display, inline=False)
+        embed.add_field(name=f"🔵 チームA ピック候補 ({len(survivors)}人)", value=survivor_display, inline=True)
+        embed.add_field(name=f"🔴 チームB ピック候補 ({len(survivors)}人)", value=survivor_display, inline=True)
         embed.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
         
         await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embed=embed)
@@ -193,9 +194,9 @@ class TargetBanView(discord.ui.View):
             
             opts = []
             for L in chunk:
-                # 💡 DiscordのSelectMenuに絵文字を表示するための正しいパース処理
+                # 💡 列名を「絵文字（Discord ID）」に修正
                 emoji_obj = None
-                emoji_str = str(L.get("絵文字", "")).strip()
+                emoji_str = str(L.get("絵文字（Discord ID）", "")).strip()
                 if emoji_str:
                     if emoji_str.startswith('<') and emoji_str.endswith('>'):
                         try:
@@ -205,7 +206,6 @@ class TargetBanView(discord.ui.View):
                     else:
                         emoji_obj = emoji_str
                         
-                # Label自体には絵文字を結合せず綺麗に保ち、emojiプロパティでアイコンを描画させる
                 label_name = f"{L['No']}. {L['clean_name']}"
                 opts.append(discord.SelectOption(
                     label=label_name[:100], 
@@ -263,9 +263,9 @@ class GlobalBanView(discord.ui.View):
         
         options = []
         for L in global_pool:
-            # 💡 絵文字パース処理
+            # 💡 列名を「絵文字（Discord ID）」に修正
             emoji_obj = None
-            emoji_str = str(L.get("絵文字", "")).strip()
+            emoji_str = str(L.get("絵文字（Discord ID）", "")).strip()
             if emoji_str:
                 if emoji_str.startswith('<') and emoji_str.endswith('>'):
                     try:
@@ -313,33 +313,30 @@ class GlobalBanView(discord.ui.View):
         if self.select_a.disabled and self.select_b.disabled:
             banned_global = [b for b in [self.banned_a, self.banned_b] if b]
             
-            # 💡 グローバルBANのカウントアップ処理をバックグラウンドで実行
             banned_names = [L['clean_name'] for L in self.all_leaders if L['uid'] in banned_global]
             if banned_names:
                 interaction.client.loop.create_task(
                     update_ban_count_in_sheet(self.sheet_manager, banned_names)
                 )
             
-            # GBで選ばれた文明を除外したリストを作る
             available_leaders = [L for L in self.all_leaders if L["uid"] not in banned_global]
             available_leaders.sort(key=lambda x: x["clean_name"])
             
             manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager)
             
-            # 💡 要件2: 中間発表 (フェーズ移行) UIの構築
             def format_banned(uid_list):
                 names = []
                 for uid in uid_list:
                     leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
                     if leader:
-                        names.append(leader['unique_name']) # 結合された絵文字付き文字列を使用
+                        names.append(leader['unique_name'])
                 return "、\n".join(names) if names else "なし"
                 
-            # 生き残りリストのテキスト作成
+            # 💡 要件: リストをチームA・Bに分け、改行で表示するUIに変更
             survivor_texts = [L['unique_name'] for L in available_leaders]
-            survivor_display = "、".join(survivor_texts)
+            survivor_display = "\n".join(survivor_texts) # カンマ区切りから改行区切りに変更
             if len(survivor_display) > 1024:
-                survivor_display = survivor_display[:1000] + "...(以下略)"
+                survivor_display = survivor_display[:1000] + "...\n(以下略)"
 
             inter_embed = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
@@ -348,19 +345,12 @@ class GlobalBanView(discord.ui.View):
             )
             inter_embed.add_field(name="🌐 確定したグローバルBAN", value=format_banned(banned_global), inline=False)
             
-            # チーム一覧フィールド
-            team_a_str = "\n".join([f"・<@{pid}>" for pid in self.team_a]) if self.team_a else f"・<@{self.host.id}>"
-            team_b_str = "\n".join([f"・<@{pid}>" for pid in self.team_b]) if self.team_b else f"・<@{self.host.id}>"
-            
-            inter_embed.add_field(name=f"🔵 チームA (代表: <@{self.rep_a}>)", value=f"{team_a_str}\n\n👉 これから **{self.required_bans}** 個BANします", inline=True)
-            inter_embed.add_field(name=f"🔴 チームB (代表: <@{self.rep_b}>)", value=f"{team_b_str}\n\n👉 これから **{self.required_bans}** 個BANします", inline=True)
-            
-            inter_embed.add_field(name=f"✅ 現在選択可能な指導者 ({len(available_leaders)}人)", value=survivor_display, inline=False)
+            # 代表者名の表示を消し、左右対称のチーム分けUIのように表示
+            inter_embed.add_field(name=f"🔵 チームA 選択可能 ({len(available_leaders)}人)", value=survivor_display, inline=True)
+            inter_embed.add_field(name=f"🔴 チームB 選択可能 ({len(available_leaders)}人)", value=survivor_display, inline=True)
 
-            # メッセージを中間発表UIに差し替える
             await interaction.response.edit_message(content=None, embed=inter_embed, view=None)
             
-            # その直後、各チーム向けのドロップダウンメニューを別々のメッセージとして送信
             chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
@@ -418,18 +408,17 @@ class BanPickStartView(discord.ui.View):
             if not no_val: no_val = str(i + 1)
             
             leader_name = leader_data.get('指導者名', 'Unknown')
-            emoji_str = str(leader_data.get('絵文字', '')).strip()
+            # 💡 列名を「絵文字（Discord ID）」に修正
+            emoji_str = str(leader_data.get('絵文字（Discord ID）', '')).strip()
             
-            # ドロップダウン裏側用の完全なユニークID
             unique_id = f"leader_id_{i}_{leader_name}"
             
-            # 💡 テキスト出力用 (No. 指導者名 <:Discord_ID:>)
             display_name = f"{no_val}. {leader_name}"
             if emoji_str:
                 display_name += f" {emoji_str}"
                 
-            leader_data['unique_name'] = display_name   # テキスト表示用（絵文字結合済み）
-            leader_data['clean_name'] = leader_name     # 処理・シート更新用
+            leader_data['unique_name'] = display_name
+            leader_data['clean_name'] = leader_name
             leader_data['No'] = no_val
             leader_data['uid'] = unique_id
             
