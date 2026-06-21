@@ -668,7 +668,7 @@ class MatchmakerCog(commands.Cog):
 
     @app_commands.command(name="export_emojis", description="【管理者用】サーバーの絵文字一覧をCSVで出力します")
     @app_commands.default_permissions(administrator=True)
-    async def export_emojis(interaction: discord.Interaction):
+    async def export_emojis(self, interaction: discord.Interaction):
         # サーバーに登録されている全絵文字を取得
         emojis = interaction.guild.emojis
         if not emojis:
