@@ -388,34 +388,24 @@ class BanPickStartView(discord.ui.View):
             
             leader_name = leader_data.get('指導者名', 'Unknown')
             
-            # 💡 Emoji_Discord_Nm と Emoji_Discord_ID を組み合わせて絵文字形式に変換する処理
+            # 💡 絵文字の組み立て（厳格なチェックを回避して直接オブジェクト化する）
             emoji_nm = str(leader_data.get('Emoji_Discord_Nm', '')).strip()
             emoji_id = str(leader_data.get('Emoji_Discord_ID', '')).strip()
             
             emoji_obj = None
             emoji_text = ""
             
-            if emoji_nm and emoji_id:
-                # <:名前:ID> の形式に組み立てる
-                emoji_str = f"<:{emoji_nm}:{emoji_id}>"
-                try:
-                    emoji_obj = discord.PartialEmoji.from_str(emoji_str)
-                    emoji_text = emoji_str
-                except Exception as e:
-                    logger.error(f"絵文字パースエラー {emoji_str}: {e}")
-            elif emoji_id: # 互換性のためIDだけでも処理
-                if emoji_id.isdigit():
-                    emoji_obj = discord.PartialEmoji(name="civ", id=int(emoji_id))
-                    emoji_text = f"<:civ:{emoji_id}>"
-                elif emoji_id.startswith('<') and emoji_id.endswith('>'):
-                    try:
-                        emoji_obj = discord.PartialEmoji.from_str(emoji_id)
-                        emoji_text = emoji_id
-                    except:
-                        emoji_text = emoji_id
-                else:
-                    emoji_obj = emoji_id
-                    emoji_text = emoji_id
+            # 絵文字IDが「数字」であるかだけをチェックし、強制的に絵文字として登録する
+            if emoji_id.isdigit():
+                # 名前が空欄だったり日本語だったりしても、とりあえず「civ」などの適当な英字を当てることでエラーを回避
+                safe_name = emoji_nm if emoji_nm else "icon"
+                
+                # from_str を使わず、明示的にカスタム絵文字オブジェクトを生成する
+                emoji_obj = discord.PartialEmoji(name=safe_name, id=int(emoji_id))
+                emoji_text = f"<:{safe_name}:{emoji_id}>"
+            elif emoji_id: # もしUnicode絵文字(🌎など)が直接入っていた場合の保険
+                emoji_obj = emoji_id
+                emoji_text = emoji_id
             
             unique_id = f"leader_id_{i}_{leader_name}"
             
