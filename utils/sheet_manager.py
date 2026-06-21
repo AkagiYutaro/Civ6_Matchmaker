@@ -72,7 +72,7 @@ class SheetManager:
                         "指導者名": leader_name,
                         "文明名": civ_name,
                         "絵文字": str(row.get("絵文字", "")).strip(),
-                        "グローバルBAN候補": int(row.get("グローバルBAN候補", 0) or 0)
+                        "グローバルBANFLG": row.get("グローバルBANFLG", 0) # 💡 列名を「グローバルBANFLG」に修正！
                     })
             return leaders
         except Exception as e:
