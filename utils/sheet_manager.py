@@ -61,22 +61,25 @@ class SheetManager:
             records = ws.get_all_records()
             leaders = []
             for row in records:
-                # 👇 スプレッドシートから「No」列を取得する処理を追加
+                # 👇 スプレッドシートから各列を取得
                 no_val = str(row.get("No", "")).strip()
                 leader_name = str(row.get("指導者名", "")).strip()
                 civ_name = str(row.get("文明名", "")).strip()
                 
                 if leader_name:
                     leaders.append({
-                        "No": no_val,  # 取得したNoを追加
+                        "No": no_val,
                         "指導者名": leader_name,
                         "文明名": civ_name,
                         "絵文字": str(row.get("絵文字", "")).strip(),
-                        "グローバルBANFLG": row.get("グローバルBANFLG", 0) # 💡 列名を「グローバルBANFLG」に修正！
+                        # 💡 ここに追加: 新しい列データも抽出して辞書に含める！
+                        "Emoji_Discord_Nm": str(row.get("Emoji_Discord_Nm", "")).strip(),
+                        "Emoji_Discord_ID": str(row.get("Emoji_Discord_ID", "")).strip(),
+                        "グローバルBANFLG": row.get("グローバルBANFLG", 0)
                     })
             return leaders
         except Exception as e:
-            logger.warning(f"[WARNING] 指導者シートの取得に失敗しました: {e}")
+            print(f"[WARNING] 指導者シートの取得に失敗しました: {e}")
             return []
 
     def get_master_config(self) -> list:
