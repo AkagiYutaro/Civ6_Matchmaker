@@ -222,7 +222,7 @@ class TargetBanView(discord.ui.View):
             # 💡 プレースホルダーを「[〇〇〜〇〇] から選ぶ」の番号表示に変更
             first_no = chunk[0]['target_disp_no']
             last_no = chunk[-1]['target_disp_no']
-            placeholder = f"[{first_no}〜{last_no}] から選ぶ ({len(chunk)}人) ▼"
+            placeholder = f"[{first_no}〜{last_no}] から選択 ▼"
             
             opts = []
             for L in chunk:
