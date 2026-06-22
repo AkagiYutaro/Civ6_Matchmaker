@@ -121,36 +121,56 @@ class BanPickPhaseManager:
                     names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
             return "\n".join(names) if names else "なし"
             
-        # 💡 生き残りリストのフォーマット
-        def format_survivors(leader_list):
-            names = []
-            for i, L in enumerate(leader_list, start=1):
-                emoji = L.get('emoji_text', '')
-                name = L['clean_name']
-                names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
-            return "\n".join(names) if names else "なし"
+        # 💡 ヘッダー情報の構築 (所属プレイヤーの表示)
+        team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
+        embed.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=True)
+        
+        team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
+        embed.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=True)
 
         ban_text = f"**【🌐 グローバルBAN】**\n" + format_list(self.global_banned) + "\n\n"
         ban_text += f"**【🔵 チームAのBAN】**\n" + format_list(self.banned_a) + "\n\n"
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_list(self.banned_b)
         embed.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
+        embed.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
         
-        # 生き残りリストを半分に分割
+        # ヘッダーEmbedを送信
+        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embed=embed)
+        
+        # 生き残りリストを半分に分割して通し番号を振る
+        for i, L in enumerate(survivors, start=1):
+            L['final_disp_no'] = i
+            
         half_idx = (len(survivors) + 1) // 2
         list_a = survivors[:half_idx]
         list_b = survivors[half_idx:]
         
-        display_a = format_survivors(list_a)
-        display_b = format_survivors(list_b)
+        # 💡 リストを20人ごとのチャンクに分け、複数のEmbedを作成する関数
+        def create_team_embeds(team_label, leader_list, color):
+            embeds = []
+            chunk_size = 20
+            chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
+            total_pages = max(1, len(chunks))
+            for i, chunk in enumerate(chunks, 1):
+                names = []
+                for L in chunk:
+                    emoji = L.get('emoji_text', '')
+                    name = L['clean_name']
+                    disp_no = L.get('final_disp_no', L.get('target_disp_no', 0))
+                    names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+                
+                val = "\n".join(names) if names else "なし"
+                page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
+                emb = discord.Embed(title=page_title, description=val, color=color)
+                embeds.append(emb)
+            return embeds
+
+        embeds_a = create_team_embeds("🔵 チームA ピック候補", list_a, discord.Color.blue())
+        embeds_b = create_team_embeds("🔴 チームB ピック候補", list_b, discord.Color.red())
         
-        if len(display_a) > 1024: display_a = display_a[:1000] + "...\n(以下略)"
-        if len(display_b) > 1024: display_b = display_b[:1000] + "...\n(以下略)"
-            
-        embed.add_field(name=f"🔵 チームA ({len(list_a)}人)", value=display_a, inline=True)
-        embed.add_field(name=f"🔴 チームB ({len(list_b)}人)", value=display_b, inline=True)
-        embed.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
-        
-        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embed=embed)
+        # ピック候補一覧を複数Embedで送信
+        if embeds_a + embeds_b:
+            await self.original_interaction.channel.send(embeds=embeds_a + embeds_b)
 
 
 # ==========================================
@@ -198,13 +218,16 @@ class TargetBanView(discord.ui.View):
         
         for chunk in chunks:
             if not chunk: continue
-            first_name = chunk[0]["clean_name"][:3]
-            last_name = chunk[-1]["clean_name"][:3]
-            placeholder = f"[{first_name}〜{last_name}] から選ぶ ({len(chunk)}人) ▼"
+            
+            # 💡 プレースホルダーを「[〇〇〜〇〇] から選ぶ」の番号表示に変更
+            first_no = chunk[0]['target_disp_no']
+            last_no = chunk[-1]['target_disp_no']
+            placeholder = f"[{first_no}〜{last_no}] から選ぶ ({len(chunk)}人) ▼"
             
             opts = []
             for L in chunk:
-                label_name = f"{L['No']}. {L['clean_name']}"
+                # 💡 ドロップダウンの表示も通し番号にする
+                label_name = f"{L['target_disp_no']}. {L['clean_name']}"
                 opts.append(discord.SelectOption(
                     label=label_name[:100], 
                     description=str(L.get("文明名", ""))[:100], 
@@ -261,7 +284,8 @@ class GlobalBanView(discord.ui.View):
         
         options = []
         for L in global_pool:
-            label_name = f"{L['No']}. {L['clean_name']}"
+            # 💡 連番を使用してラベルを作成
+            label_name = f"{L.get('global_disp_no', L['No'])}. {L['clean_name']}"
             options.append(discord.SelectOption(
                 label=label_name[:100], 
                 description=str(L.get("文明名", ""))[:100], 
@@ -320,16 +344,12 @@ class GlobalBanView(discord.ui.View):
                         names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
                 return "\n".join(names) if names else "なし"
                 
-            def format_survivors(leader_list):
-                names = []
-                for i, L in enumerate(leader_list, start=1):
-                    emoji = L.get('emoji_text', '')
-                    name = L['clean_name']
-                    names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
-                return "\n".join(names) if names else "なし"
-                
             # 💡 生き残りリストを毎回ランダムにシャッフルする
             random.shuffle(available_leaders)
+
+            # 💡 シャッフル後のリストに、1からの通し番号を振る
+            for i, L in enumerate(available_leaders, start=1):
+                L['target_disp_no'] = i
 
             # リストを半分に分割してAとBに割り当てる
             half_idx = (len(available_leaders) + 1) // 2
@@ -337,27 +357,52 @@ class GlobalBanView(discord.ui.View):
             list_a = available_leaders[:half_idx]
             list_b = available_leaders[half_idx:]
             
-            display_a = format_survivors(list_a)
-            display_b = format_survivors(list_b)
-            
-            if len(display_a) > 1024: display_a = display_a[:1000] + "...\n(以下略)"
-            if len(display_b) > 1024: display_b = display_b[:1000] + "...\n(以下略)"
-
+            # 💡 ヘッダー情報の更新（プレイヤー名とグローバルBANのみのシンプルなパネルへ）
             inter_embed = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
                 description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
                 color=discord.Color.blue()
             )
+            
+            # チームプレイヤーの表示
+            team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
+            inter_embed.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=True)
+            
+            team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
+            inter_embed.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=True)
+
             inter_embed.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
             
-            inter_embed.add_field(name=f"🔵 チームA ({len(list_a)}人)", value=display_a, inline=True)
-            inter_embed.add_field(name=f"🔴 チームB ({len(list_b)}人)", value=display_b, inline=True)
-
             await interaction.response.edit_message(content=None, embed=inter_embed, view=None)
+
+            # 💡 リストを20人ごとのチャンクに分け、複数のEmbedを作成する関数
+            def create_team_embeds(team_label, leader_list, color):
+                embeds = []
+                chunk_size = 20
+                chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
+                total_pages = max(1, len(chunks))
+                for i, chunk in enumerate(chunks, 1):
+                    names = []
+                    for L in chunk:
+                        emoji = L.get('emoji_text', '')
+                        name = L['clean_name']
+                        disp_no = L['target_disp_no']
+                        names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+                    
+                    val = "\n".join(names) if names else "なし"
+                    page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
+                    emb = discord.Embed(title=page_title, description=val, color=color)
+                    embeds.append(emb)
+                return embeds
+                
+            # 各チームのリストEmbedを生成して1つのメッセージで一括送信
+            embeds_a = create_team_embeds("🔵 チームA ピック候補", list_a, discord.Color.blue())
+            embeds_b = create_team_embeds("🔴 チームB ピック候補", list_b, discord.Color.red())
             
-            # 💡 ドロップダウンメニュー用にはランダムではなく元の「番号順」にソートし直す（探しやすくするため）
-            dropdown_leaders = sorted(available_leaders, key=lambda x: int(x['No']) if str(x['No']).isdigit() else 999)
-            chunks = [dropdown_leaders[i:i + 25] for i in range(0, len(dropdown_leaders), 25)]
+            await interaction.channel.send(embeds=embeds_a + embeds_b)
+            
+            # 💡 ドロップダウンメニュー用 (ソートをやめ、そのままの順番でチャンクに分割する)
+            chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
             
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
@@ -460,8 +505,13 @@ class BanPickStartView(discord.ui.View):
         if not global_pool:
             global_pool = all_leaders[:10]
             
+        # 💡 グローバルBANの選択肢用に1から連番を振る
+        for i, L in enumerate(global_pool, start=1):
+            L['global_disp_no'] = i
+            
         team_size = max(len(self.team_a), len(self.team_b))
-        required_bans = max(1, team_size - 1)
+        # 💡 フェーズ2のBAN数を5名に固定
+        required_bans = 5
 
         rep_a_id = self.team_a[0] if self.team_a else self.host.id
         rep_b_id = self.team_b[0] if self.team_b else self.host.id
