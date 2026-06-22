@@ -131,14 +131,17 @@ class BanPickPhaseManager:
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_list(self.banned_b)
         embed_a.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
         
-        # 生き残りリストを半分に分割して通し番号を振る
-        for i, L in enumerate(survivors, start=1):
-            L['final_disp_no'] = i
-            
+        # 生き残りリストを半分に分割
         half_idx = (len(survivors) + 1) // 2
         list_a = survivors[:half_idx]
         list_b = survivors[half_idx:]
         
+        # 💡 各チームごとに通し番号を1から振る
+        for i, L in enumerate(list_a, start=1):
+            L['final_disp_no'] = i
+        for i, L in enumerate(list_b, start=1):
+            L['final_disp_no'] = i
+            
         # 💡 リストを20人ごとのチャンクに分け、Embedのフィールド(横並び)として追加する関数
         def add_team_fields(target_embed, team_label, leader_list):
             chunk_size = 20
@@ -344,16 +347,18 @@ class GlobalBanView(discord.ui.View):
             # 💡 生き残りリストを毎回ランダムにシャッフルする
             random.shuffle(available_leaders)
 
-            # 💡 シャッフル後のリストに、1からの通し番号を振る
-            for i, L in enumerate(available_leaders, start=1):
-                L['target_disp_no'] = i
-
             # リストを半分に分割してAとBに割り当てる
             half_idx = (len(available_leaders) + 1) // 2
             
             list_a = available_leaders[:half_idx]
             list_b = available_leaders[half_idx:]
             
+            # 💡 各チームごとに、1からの通し番号を振る
+            for i, L in enumerate(list_a, start=1):
+                L['target_disp_no'] = i
+            for i, L in enumerate(list_b, start=1):
+                L['target_disp_no'] = i
+
             # 💡 チームAのEmbed（ヘッダーとリスト）
             embed_a = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
@@ -390,16 +395,21 @@ class GlobalBanView(discord.ui.View):
             embed_b = discord.Embed(color=discord.Color.red())
             team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
             embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
+            
+            # 💡 チームBにも確定したグローバルBANを表示する
+            embed_b.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
+            
             add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
             
             # 2つのEmbedを同時に上書き表示
             await interaction.response.edit_message(content=None, embeds=[embed_a, embed_b], view=None)
             
-            # 💡 ドロップダウンメニュー用 (ソートをやめ、そのままの順番でチャンクに分割する)
-            chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
+            # 💡 ドロップダウンメニュー用 (各チームごとにチャンク分割する)
+            chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
+            chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
             
-            view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
-            view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
+            view_a = TargetBanView(self.rep_a, self.required_bans, chunks_a, manager, "A")
+            view_b = TargetBanView(self.rep_b, self.required_bans, chunks_b, manager, "B")
             
             msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_a)
             msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_b)
