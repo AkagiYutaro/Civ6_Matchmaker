@@ -131,10 +131,16 @@ class SheetManager:
 
             row_idx = next((idx for idx, p in enumerate(all_players, start=2) if str(p.get("Discord_ID")) == str_id), None)
             
+            # 💡 修正: "CivNo" と "CivNO" の表記揺れを吸収し、確実に数値を取得する関数
+            def get_civ_no(player_data):
+                val = player_data.get("CivNo", player_data.get("CivNO", 0))
+                return int(str(val).strip()) if str(val).strip().isdigit() else 0
+
             if row_idx:
-                target_civ_no = int(all_players[row_idx - 2].get("CivNo", 0)) if str(all_players[row_idx - 2].get("CivNo", "")).isdigit() else 0
+                target_civ_no = get_civ_no(all_players[row_idx - 2])
             else:
-                target_civ_no = max([int(p.get("CivNo", 0)) for p in all_players if str(p.get("CivNo", 0)).isdigit()], default=0) + 1
+                # 既存プレイヤー全員の番号から最大値を探し、+1 する
+                target_civ_no = max([get_civ_no(p) for p in all_players], default=0) + 1
             
             # フラグの設定 (選択されたものを 1 に、それ以外を 0 にする)
             if active_flgs is not None:
