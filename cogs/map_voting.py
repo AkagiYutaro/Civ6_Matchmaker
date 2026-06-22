@@ -25,8 +25,8 @@ class MapVoteSelect(discord.ui.Select):
         self.parent_view.confirm_button.disabled = False
         
         await interaction.response.edit_message(
-            content=f"🗺️ **{selected_map}** を選択中...\n"
-                    "下の【🗳️ 投票】ボタンを押すと投票が完了します！",
+            content=f"> 🗺️ **{selected_map}** を仮選択中です...\n"
+                    "> **【🗳️ 投票】** ボタンを押して確定してください",
             view=self.parent_view
         )
 

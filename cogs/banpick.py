@@ -153,7 +153,7 @@ class BanPickPhaseManager:
                     names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
                 
                 val = "\n".join(names) if names else "なし"
-                page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
+                page_title = f"Leader - {i}/{total_pages}" if total_pages > 1 else "Leader"
                 # inline=True にすることで左右に横並びになる
                 target_embed.add_field(name=page_title, value=val, inline=True)
 
@@ -380,7 +380,7 @@ class GlobalBanView(discord.ui.View):
                         names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
                     
                     val = "\n".join(names) if names else "なし"
-                    page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
+                    page_title = f"Leader - {i}/{total_pages}" if total_pages > 1 else "Leader"
                     # inline=True にすることで左右に横並びになる
                     target_embed.add_field(name=page_title, value=val, inline=True)
 
@@ -401,8 +401,8 @@ class GlobalBanView(discord.ui.View):
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks, manager, "B")
             
-            msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n*(※管理者は代理操作可能です)*", view=view_a)
-            msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n*(※管理者は代理操作可能です)*", view=view_b)
+            msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_a)
+            msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_b)
             
             manager.msg_a = msg_a
             manager.msg_b = msg_b
