@@ -112,19 +112,52 @@ class SheetManager:
             logger.error(f"[ERROR] プレイヤースコアの読み込み失敗: {e}")
             raise e
 
-    def register_or_update_player(self, discord_id: int, player_name: str, skill_data: dict) -> bool:
+    # 💡 修正: 引数を柔軟に受け取り、エラーなく処理できるように強化
+    def register_or_update_player(self, discord_id: int, player_name: str, skill_data=None, active_flgs=None, **kwargs) -> bool:
         try:
             players_ws = self.sheet.worksheet("プレイヤーデータ")
             all_players = players_ws.get_all_records()
             str_id = str(discord_id)
+            
+            # 引数の柔軟な受け取り対応 (リストが渡された場合や、キーワード引数に対応)
+            if active_flgs is None:
+                if isinstance(skill_data, list):
+                    active_flgs = skill_data
+                    skill_data = None
+                elif 'active_flgs' in kwargs:
+                    active_flgs = kwargs['active_flgs']
+                else:
+                    active_flgs = []
+
             row_idx = next((idx for idx, p in enumerate(all_players, start=2) if str(p.get("Discord_ID")) == str_id), None)
-            target_civ_no = int(all_players[row_idx - 2].get("CivNo", 0)) if row_idx else max([int(p.get("CivNo", 0)) for p in all_players if str(p.get("CivNo", 0)).isdigit()], default=0) + 1
-            flags = [skill_data.get(m["FLG名"], 0) for m in self.get_master_config()]
-            row_data = [target_civ_no, str_id, player_name, 0, 0, 0, 0] + flags
+            
             if row_idx:
-                players_ws.update(f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(row_data))}", [row_data])
+                target_civ_no = int(all_players[row_idx - 2].get("CivNo", 0)) if str(all_players[row_idx - 2].get("CivNo", "")).isdigit() else 0
+            else:
+                target_civ_no = max([int(p.get("CivNo", 0)) for p in all_players if str(p.get("CivNo", 0)).isdigit()], default=0) + 1
+            
+            # フラグの設定 (選択されたものを 1 に、それ以外を 0 にする)
+            if active_flgs is not None:
+                flags = [1 if str(m.get("FLG名", "")).strip() in active_flgs else 0 for m in self.get_master_config()]
+            elif skill_data is not None:
+                flags = [skill_data.get(str(m.get("FLG名", "")).strip(), 0) for m in self.get_master_config()]
+            else:
+                flags = [0 for m in self.get_master_config()]
+
+            row_data = [target_civ_no, str_id, player_name, 0, 0, 0, 0] + flags
+            
+            if row_idx:
+                range_str = f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(row_data))}"
+                try:
+                    # gspread 5.x までの記述
+                    players_ws.update(range_str, [row_data])
+                except TypeError:
+                    # gspread 6.0 以降の記述 (引数の順番が逆になっているため例外で吸収)
+                    players_ws.update([row_data], range_str)
             else:
                 players_ws.append_row(row_data)
+                
+            logger.info(f"[SUCCESS] プレイヤーデータを保存しました: {player_name}")
             return True
         except Exception as e:
             logger.error(f"[ERROR] プレイヤーデータの保存に失敗しました: {e}")
