@@ -108,7 +108,8 @@ class BanPickPhaseManager:
         # 💡 生き残りリストをランダムにシャッフル
         random.shuffle(survivors)
         
-        embed = discord.Embed(title="🎉 CIV6 BAN/PICK 最終結果", color=discord.Color.gold())
+        # 💡 チームA用のEmbed作成
+        embed_a = discord.Embed(title="🎉 CIV6 BAN/PICK 最終結果", color=discord.Color.blue())
         
         # 💡 BANリストのフォーマット (連番＋絵文字＋指導者名)
         def format_list(uid_list):
@@ -123,19 +124,12 @@ class BanPickPhaseManager:
             
         # 💡 ヘッダー情報の構築 (所属プレイヤーの表示)
         team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
-        embed.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=True)
+        embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
         
-        team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
-        embed.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=True)
-
         ban_text = f"**【🌐 グローバルBAN】**\n" + format_list(self.global_banned) + "\n\n"
         ban_text += f"**【🔵 チームAのBAN】**\n" + format_list(self.banned_a) + "\n\n"
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_list(self.banned_b)
-        embed.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
-        embed.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
-        
-        # ヘッダーEmbedを送信
-        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embed=embed)
+        embed_a.add_field(name="🚫 確定したBANリスト", value=ban_text, inline=False)
         
         # 生き残りリストを半分に分割して通し番号を振る
         for i, L in enumerate(survivors, start=1):
@@ -145,9 +139,8 @@ class BanPickPhaseManager:
         list_a = survivors[:half_idx]
         list_b = survivors[half_idx:]
         
-        # 💡 リストを20人ごとのチャンクに分け、複数のEmbedを作成する関数
-        def create_team_embeds(team_label, leader_list, color):
-            embeds = []
+        # 💡 リストを20人ごとのチャンクに分け、Embedのフィールド(横並び)として追加する関数
+        def add_team_fields(target_embed, team_label, leader_list):
             chunk_size = 20
             chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
             total_pages = max(1, len(chunks))
@@ -161,16 +154,20 @@ class BanPickPhaseManager:
                 
                 val = "\n".join(names) if names else "なし"
                 page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
-                emb = discord.Embed(title=page_title, description=val, color=color)
-                embeds.append(emb)
-            return embeds
+                # inline=True にすることで左右に横並びになる
+                target_embed.add_field(name=page_title, value=val, inline=True)
 
-        embeds_a = create_team_embeds("🔵 チームA ピック候補", list_a, discord.Color.blue())
-        embeds_b = create_team_embeds("🔴 チームB ピック候補", list_b, discord.Color.red())
+        add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
         
-        # ピック候補一覧を複数Embedで送信
-        if embeds_a + embeds_b:
-            await self.original_interaction.channel.send(embeds=embeds_a + embeds_b)
+        # 💡 チームB用のEmbed作成
+        embed_b = discord.Embed(color=discord.Color.red())
+        team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
+        embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
+        add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
+        embed_b.set_footer(text="残ったリストから自由にお好きな文明をピックしてください！GLHF！")
+        
+        # 2つのEmbedを同時に送信
+        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embeds=[embed_a, embed_b])
 
 
 # ==========================================
@@ -357,27 +354,20 @@ class GlobalBanView(discord.ui.View):
             list_a = available_leaders[:half_idx]
             list_b = available_leaders[half_idx:]
             
-            # 💡 ヘッダー情報の更新（プレイヤー名とグローバルBANのみのシンプルなパネルへ）
-            inter_embed = discord.Embed(
+            # 💡 チームAのEmbed（ヘッダーとリスト）
+            embed_a = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
                 description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
                 color=discord.Color.blue()
             )
             
-            # チームプレイヤーの表示
+            # チームプレイヤーとBANの表示 (横並びさせない)
             team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
-            inter_embed.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=True)
-            
-            team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
-            inter_embed.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=True)
+            embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
+            embed_a.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
 
-            inter_embed.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
-            
-            await interaction.response.edit_message(content=None, embed=inter_embed, view=None)
-
-            # 💡 リストを20人ごとのチャンクに分け、複数のEmbedを作成する関数
-            def create_team_embeds(team_label, leader_list, color):
-                embeds = []
+            # 💡 リストを20人ごとのチャンクに分け、Embedのフィールド(横並び)として追加する関数
+            def add_team_fields(target_embed, team_label, leader_list):
                 chunk_size = 20
                 chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
                 total_pages = max(1, len(chunks))
@@ -386,20 +376,24 @@ class GlobalBanView(discord.ui.View):
                     for L in chunk:
                         emoji = L.get('emoji_text', '')
                         name = L['clean_name']
-                        disp_no = L['target_disp_no']
+                        disp_no = L.get('target_disp_no', 0)
                         names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
                     
                     val = "\n".join(names) if names else "なし"
                     page_title = f"{team_label} ({len(leader_list)}人) - ({i}/{total_pages}ページ)" if total_pages > 1 else f"{team_label} ({len(leader_list)}人)"
-                    emb = discord.Embed(title=page_title, description=val, color=color)
-                    embeds.append(emb)
-                return embeds
-                
-            # 各チームのリストEmbedを生成して1つのメッセージで一括送信
-            embeds_a = create_team_embeds("🔵 チームA ピック候補", list_a, discord.Color.blue())
-            embeds_b = create_team_embeds("🔴 チームB ピック候補", list_b, discord.Color.red())
+                    # inline=True にすることで左右に横並びになる
+                    target_embed.add_field(name=page_title, value=val, inline=True)
+
+            add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
             
-            await interaction.channel.send(embeds=embeds_a + embeds_b)
+            # 💡 チームBのEmbed（プレイヤーとリスト）
+            embed_b = discord.Embed(color=discord.Color.red())
+            team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
+            embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
+            add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
+            
+            # 2つのEmbedを同時に上書き表示
+            await interaction.response.edit_message(content=None, embeds=[embed_a, embed_b], view=None)
             
             # 💡 ドロップダウンメニュー用 (ソートをやめ、そのままの順番でチャンクに分割する)
             chunks = [available_leaders[i:i + 25] for i in range(0, len(available_leaders), 25)]
