@@ -1,4 +1,5 @@
 import itertools
+import random
 
 def balance_teams(players_info: dict) -> tuple[list, list]:
     """
@@ -39,3 +40,26 @@ def balance_teams(players_info: dict) -> tuple[list, list]:
             best_team_b = team_b_ids
             
     return best_team_a, best_team_b
+
+def calculate_map_votes(map_votes_data: dict, participants: dict, map_emojis: dict) -> tuple[str, int]:
+    """
+    シークレット投票のデータを集計し、最も得票数の多いマップを決定する。
+    """
+    map_vote_counts = {name: 0 for name in map_emojis.keys()}
+    
+    # 現在の参加者リストに残っている人の投票だけを集計
+    for p_id in participants.keys():
+        if p_id in map_votes_data:
+            voted_map = map_votes_data[p_id]
+            if voted_map in map_vote_counts:
+                map_vote_counts[voted_map] += 1
+
+    if map_vote_counts and max(map_vote_counts.values()) > 0:
+        max_vote_val = max(map_vote_counts.values())
+        voted_maps = [k for k, v in map_vote_counts.items() if v == max_vote_val]
+        chosen_map = random.choice(voted_maps)
+    else:
+        chosen_map = "未投票（ランダム等）"
+        max_vote_val = 0
+        
+    return chosen_map, max_vote_val
