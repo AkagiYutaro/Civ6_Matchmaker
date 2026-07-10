@@ -9,12 +9,12 @@ class MatchmakerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とマップ投票、チーム分けを開始します。")
+    @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とチーム分けを開始します。")
     async def civ_match(self, interaction: discord.Interaction):
         host = interaction.user
         
         # メンションしたいロールID
-        ROLE_ID = 1506555260204744714
+        ROLE_ID = 123456789012345678 # 実際のロールID
         mention_str = f"<@&{ROLE_ID}>"
         
         # 募集用メッセージの作成
@@ -23,11 +23,13 @@ class MatchmakerCog(commands.Cog):
             description=f"{mention_str}\n<@{host.id}> が募集を開始しました。",
             color=discord.Color.blurple()
         )
-        embed.add_field(name=f"参加者一覧", value=f"・<@{host.id}>", inline=False)
         
-        # 投票可能なスタンプ一覧を説明に追加
-        vote_guide = "\n".join([f"{emoji} : **{name}**" for name, emoji in MAP_EMOJIS.items()])
-        embed.add_field(name="【マップ投票】", value=vote_guide, inline=False)
+        view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager)
+        
+        # メッセージを送信して終了（これ以降にあった古いリアクション追加処理は全て削除）
+        await interaction.response.send_message(embed=embed, view=view)
+        # メンションをEmbedの外側に送信してから、Embedを送信する
+        await interaction.response.send_message(content=f"{mention_str}", embed=embed, view=view)
         
         # ui/matchmaker_ui.py で定義した View をここで呼び出す！
         view = MatchmakerView(host=host, sheet_manager=self.bot.sheet_manager)
