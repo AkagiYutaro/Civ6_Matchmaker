@@ -1,6 +1,9 @@
 import discord
-from logic.matchmaker_logic import balance_teams
+from logic.matchmaker_logic import balance_teams, calculate_map_votes
 import random
+
+# 作成したマップ投票UIを読み込む
+from ui.map_voting_ui import MapVotingView
 
 MAP_EMOJIS = {
     "七つの海": "7️⃣",
@@ -50,9 +53,11 @@ class MatchmakerView(discord.ui.View):
         self.host = host
         self.sheet_manager = sheet_manager
         self.participants = {host.id: host.display_name}
+        
+        # 💡 追加: 投票データを保存する辞書 { user_id: "マップ名" }
+        self.map_votes_data = {}
 
     async def update_embed(self, interaction: discord.Interaction = None, original_message: discord.Message = None):
-        """参加者リストの表示を更新する（15分タイムアウト対応済）"""
         if interaction:
             embed = interaction.message.embeds[0]
         elif original_message:
@@ -68,16 +73,8 @@ class MatchmakerView(discord.ui.View):
         elif original_message:
             try:
                 await original_message.edit(embed=embed, view=self)
-            except discord.errors.HTTPException as e:
-                if e.code == 50027:
-                    try:
-                        channel = original_message.channel
-                        fetched_msg = await channel.fetch_message(original_message.id)
-                        await fetched_msg.edit(embed=embed, view=self)
-                    except Exception as inner_e:
-                        print(f"[ERROR] メッセージの再取得と編集に失敗しました: {inner_e}")
-                else:
-                    print(f"[ERROR] Embedの更新中にエラーが発生しました: {e}")
+            except discord.errors.HTTPException:
+                pass
 
     @discord.ui.button(label="参加する", style=discord.ButtonStyle.success, custom_id="civ_join_btn", row=0)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -85,11 +82,11 @@ class MatchmakerView(discord.ui.View):
         try:
             players_info = self.sheet_manager.get_player_scores([user.id])
         except Exception as e:
-            await interaction.response.send_message(f"❌ **スプレッドシート接続エラー**\n*(詳細: {e})*", ephemeral=True)
+            await interaction.response.send_message(f"❌ **スプレッドシート接続エラー** ({e})", ephemeral=True)
             return
 
         if players_info[user.id] is None:
-            await interaction.response.send_message("⚠️ **チームの戦力バランスを計算するため、事前にアンケートへの回答が必要です。**\nアンケートに答えてから、再度参加ボタンを押してください！", ephemeral=True)
+            await interaction.response.send_message("⚠️ **チーム分けのため事前にアンケートへの回答が必要です。**", ephemeral=True)
             return
 
         if user.id not in self.participants:
@@ -103,9 +100,28 @@ class MatchmakerView(discord.ui.View):
         user = interaction.user
         if user.id in self.participants:
             del self.participants[user.id]
+            
+            # 💡 追加: 辞退した場合は投票データも消去する
+            if user.id in self.map_votes_data:
+                del self.map_votes_data[user.id]
+                
             await self.update_embed(interaction=interaction)
         else:
             await interaction.response.send_message("まだ参加登録していません！", ephemeral=True)
+
+    # 💡 追加: 🗺️ マップ投票ボタン
+    @discord.ui.button(label="🗺️ マップに投票", style=discord.ButtonStyle.secondary, custom_id="civ_vote_map_btn", row=1)
+    async def vote_map_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in self.participants:
+            await interaction.response.send_message("⚠️ 先に「参加」ボタンを押してから投票してください。", ephemeral=True)
+            return
+            
+        vote_view = MapVotingView(self, MAP_EMOJIS)
+        await interaction.response.send_message(
+            content="> 🗺️ プレイしたいマップをリストから選択してください...", 
+            view=vote_view, 
+            ephemeral=True
+        )
 
     @discord.ui.button(label="不在者を外す", style=discord.ButtonStyle.secondary, custom_id="civ_remove_absent_btn", row=1)
     async def remove_absent_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -114,13 +130,12 @@ class MatchmakerView(discord.ui.View):
             return
             
         if len(self.participants) == 0:
-            await interaction.response.send_message("参加者が誰もいません。", ephemeral=True)
             return
 
         remove_view = RemovePlayerView(parent_view=self, original_message=interaction.message)
-        await interaction.response.send_message("参加者リストから除外するプレイヤーを選択してください:", view=remove_view, ephemeral=True)
+        await interaction.response.send_message("除外するプレイヤーを選択してください:", view=remove_view, ephemeral=True)
 
-    @discord.ui.button(label="チーム分け（募集者のみ）", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn", row=2)
+    @discord.ui.button(label="チーム分け", style=discord.ButtonStyle.primary, custom_id="civ_calc_btn", row=2)
     async def calc_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.host.id:
             await interaction.response.send_message("募集したホストのみ押すことができます。", ephemeral=True)
@@ -132,26 +147,13 @@ class MatchmakerView(discord.ui.View):
 
         await interaction.response.defer()
 
-        original_msg = interaction.message
-        channel = interaction.channel
-        msg_with_reactions = await channel.fetch_message(original_msg.id)
+        # ロジックモジュールを使用してマップ投票を集計
+        chosen_map, max_vote_val = calculate_map_votes(self.map_votes_data, self.participants, MAP_EMOJIS)
         
-        map_votes = {}
-        for name, emoji in MAP_EMOJIS.items():
-            reaction = discord.utils.get(msg_with_reactions.reactions, emoji=emoji)
-            if reaction:
-                map_votes[name] = reaction.count - 1
-            else:
-                map_votes[name] = 0
-
-        if map_votes and max(map_votes.values()) > 0:
-            max_vote_val = max(map_votes.values())
-            voted_maps = [k for k, v in map_votes.items() if v == max_vote_val]
-            chosen_map = random.choice(voted_maps)
+        if max_vote_val > 0:
             map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）"
         else:
-            chosen_map = "ランダム" 
-            map_result_str = f"🗺️ Map: **未投票（ランダム等）**"
+            map_result_str = f"🗺️ Map: **{chosen_map}**"
 
         players_info = self.sheet_manager.get_player_scores(list(self.participants.keys()))
         for p_id, p_data in list(players_info.items()):
@@ -163,16 +165,18 @@ class MatchmakerView(discord.ui.View):
         score_a = sum(players_info[p_id]["score"] for p_id in team_a)
         score_b = sum(players_info[p_id]["score"] for p_id in team_b)
 
-        team_a_str = "\n".join([f"・<@{p_id}> (スコア:{players_info[p_id]['score']})" for p_id in team_a])
-        team_b_str = "\n".join([f"・<@{p_id}> (スコア:{players_info[p_id]['score']})" for p_id in team_b])
+        team_a_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_a])
+        team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b])
 
-        result_embed = discord.Embed(title="🎮 Civ6 チーム分け結果発表！", color=discord.Color.gold())
+        result_embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
         result_embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
-        result_embed.add_field(name=f"🔵 チームA (合計スコア: {score_a})", value=team_a_str, inline=True)
-        result_embed.add_field(name=f"🔴 チームB (合計スコア: {score_b})", value=team_b_str, inline=True)
+        result_embed.add_field(name=f"🔵 チームA (計: {score_a})", value=team_a_str, inline=True)
+        result_embed.add_field(name=f"🔴 チームB (計: {score_b})", value=team_b_str, inline=True)
 
         for child in self.children:
             child.disabled = True
+        
+        original_msg = interaction.message
         await interaction.followup.edit_message(message_id=original_msg.id, view=self)
         await interaction.followup.send(embed=result_embed)
 
