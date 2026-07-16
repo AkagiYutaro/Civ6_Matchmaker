@@ -1,6 +1,7 @@
 import discord
 import random
-from logic.matchmaker_logic import balance_teams
+from logic.matchmaker_logic import balance_teams, calculate_map_votes
+from ui.map_voting_ui import MapVotingView
 
 MAP_EMOJIS = {
     "七つの海": "7️⃣",
@@ -14,7 +15,7 @@ MAP_EMOJIS = {
 }
 
 # ==========================================
-# 1. 全員に見える公開用パネル (参加・辞退のみ)
+# 1. 全員に見える公開用パネル (参加・辞退・マップ投票)
 # ==========================================
 class MatchmakerPublicView(discord.ui.View):
     def __init__(self, host, sheet_manager):
@@ -22,7 +23,9 @@ class MatchmakerPublicView(discord.ui.View):
         self.host = host
         self.sheet_manager = sheet_manager
         self.participants = {host.id: host.display_name}
+        self.map_votes_data = {} # 誰が何に投票したかを保持
         
+        # チーム分け後に結果を保持するための変数
         self.team_a_str_list = []
         self.team_b_str_list = []
         self.score_a = 0
@@ -34,7 +37,7 @@ class MatchmakerPublicView(discord.ui.View):
         embed.set_field_at(0, name=f"参加者一覧 ({len(self.participants)}名)", value=member_list_str, inline=False)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="参加する", style=discord.ButtonStyle.success, custom_id="civ_join_btn")
+    @discord.ui.button(label="参加", style=discord.ButtonStyle.success, custom_id="civ_join_btn")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         try:
@@ -54,16 +57,30 @@ class MatchmakerPublicView(discord.ui.View):
         else:
             await interaction.response.send_message("既に参加登録済みです！", ephemeral=True)
 
-    @discord.ui.button(label="辞退する", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn")
+    @discord.ui.button(label="辞退", style=discord.ButtonStyle.danger, custom_id="civ_leave_btn")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         if user.id in self.participants:
             del self.participants[user.id]
+            # 辞退したら投票データも消す
+            if user.id in self.map_votes_data:
+                del self.map_votes_data[user.id]
             await self.update_embed(interaction=interaction)
             await interaction.followup.send("✅ 参加を辞退しました。", ephemeral=True)
         else:
             await interaction.response.send_message("まだ参加登録していません！", ephemeral=True)
 
+    @discord.ui.button(label="🗺️ マップ投票", style=discord.ButtonStyle.secondary, custom_id="civ_vote_map_btn")
+    async def vote_map_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in self.participants:
+            return await interaction.response.send_message("⚠️ 先に「参加」ボタンを押してから投票してください。", ephemeral=True)
+            
+        vote_view = MapVotingView(MAP_EMOJIS, self)
+        await interaction.response.send_message(
+            content="> 🗺️ プレイしたいマップをリストから選択してください...", 
+            view=vote_view, 
+            ephemeral=True
+        )
 
 # ==========================================
 # 不在者削除用のセレクトUI (ホスト専用)
@@ -84,6 +101,9 @@ class RemovePlayerSelect(discord.ui.Select):
         p_id = int(self.values[0])
         if p_id in self.public_view.participants:
             removed_name = self.public_view.participants.pop(p_id)
+            if p_id in self.public_view.map_votes_data:
+                del self.public_view.map_votes_data[p_id]
+            
             embed = self.original_message.embeds[0]
             member_list_str = "\n".join([f"・<@{i}>" for i in self.public_view.participants.keys()]) if self.public_view.participants else "現在参加者なし"
             embed.set_field_at(0, name=f"参加者一覧 ({len(self.public_view.participants)}名)", value=member_list_str, inline=False)
@@ -97,9 +117,8 @@ class RemovePlayerView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(RemovePlayerSelect(public_view, original_message))
 
-
 # ==========================================
-# 2. ホスト専用 操作パネル (チーム分けフェーズ)
+# 2. ホスト専用 操作パネル (チーム分け実行)
 # ==========================================
 class HostControlView(discord.ui.View):
     def __init__(self, public_message, public_view, host, sheet_manager):
@@ -123,6 +142,14 @@ class HostControlView(discord.ui.View):
 
         await interaction.response.defer()
 
+        # 🗺️ 参加者全員のマップ投票を集計
+        chosen_map, max_vote_val = calculate_map_votes(self.public_view.map_votes_data, participants, MAP_EMOJIS)
+        if max_vote_val > 0:
+            map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）"
+        else:
+            map_result_str = f"🗺️ Map: **{chosen_map}**"
+
+        # ⚖️ スコア取得と均等化ロジック
         players_info = self.sheet_manager.get_player_scores(list(participants.keys()))
         for p_id, p_data in list(players_info.items()):
             if p_data is None:
@@ -135,8 +162,9 @@ class HostControlView(discord.ui.View):
         self.public_view.team_a_str_list = [f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_a]
         self.public_view.team_b_str_list = [f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]
 
+        # 公開パネルを「チーム分け結果」に書き換え、参加・辞退・投票ボタンを消去する
         embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
-        embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（ホストが選択中...）**", inline=False)
+        embed.add_field(name="【対戦設定】", value=map_result_str, inline=False)
         embed.add_field(name=f"🔵 チームA (計: {self.public_view.score_a})", value="\n".join(self.public_view.team_a_str_list), inline=True)
         embed.add_field(name=f"🔴 チームB (計: {self.public_view.score_b})", value="\n".join(self.public_view.team_b_str_list), inline=True)
 
@@ -145,11 +173,11 @@ class HostControlView(discord.ui.View):
         except Exception:
             pass
 
-        next_view = HostMapSelectionView(self.public_message, self.public_view, self.host)
+        # 全ての処理が完了したのでホスト操作パネルも消去する
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content="✅ **チーム分けが完了しました！**\n次にプレイするマップを以下のリストから選択、またはランダム決定してください。",
-            view=next_view
+            content="✅ **チーム分けとマップの集計が完了しました！**",
+            view=None
         )
 
     @discord.ui.button(label="不在者を外す", style=discord.ButtonStyle.secondary, custom_id="civ_remove_absent_btn", row=1)
@@ -169,47 +197,3 @@ class HostControlView(discord.ui.View):
         
         await self.public_message.delete()
         await interaction.response.edit_message(content="⚠️ 募集をキャンセルしました。", view=None)
-
-
-# ==========================================
-# 3. ホスト専用 操作パネル (マップ決定フェーズ)
-# ==========================================
-class HostMapSelect(discord.ui.Select):
-    def __init__(self, parent_view):
-        options = [discord.SelectOption(label=name, emoji=emoji, value=name) for name, emoji in MAP_EMOJIS.items()]
-        super().__init__(placeholder="リストからマップを選択して決定...", min_values=1, max_values=1, options=options)
-        self.parent_view = parent_view
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.parent_view.is_authorized(interaction):
-            return await interaction.response.send_message("権限がありません。", ephemeral=True)
-        chosen_map = self.values[0]
-        await self.parent_view.finalize_map(interaction, chosen_map)
-
-class HostMapSelectionView(discord.ui.View):
-    def __init__(self, public_message, public_view, host):
-        super().__init__(timeout=None)
-        self.public_message = public_message
-        self.public_view = public_view
-        self.host = host
-        self.add_item(HostMapSelect(self))
-
-    def is_authorized(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.host.id or interaction.user.guild_permissions.administrator
-
-    @discord.ui.button(label="🎲 完全ランダムでマップを決定", style=discord.ButtonStyle.primary, custom_id="civ_random_map_btn", row=1)
-    async def random_map_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.is_authorized(interaction):
-            return await interaction.response.send_message("権限がありません。", ephemeral=True)
-        chosen_map = random.choice(list(MAP_EMOJIS.keys()))
-        await self.finalize_map(interaction, chosen_map)
-
-    async def finalize_map(self, interaction: discord.Interaction, chosen_map: str):
-        embed = self.public_message.embeds[0]
-        embed.set_field_at(0, name="【対戦設定】", value=f"🗺️ Map: **{chosen_map}**", inline=False)
-        await self.public_message.edit(embed=embed)
-        
-        await interaction.response.edit_message(
-            content=f"🎉 マップが **{chosen_map}** に決定し、すべての募集プロセスが完了しました！\n対戦をお楽しみください！",
-            view=None
-        )
