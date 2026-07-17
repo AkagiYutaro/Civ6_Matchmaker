@@ -1,4 +1,5 @@
 import discord
+import datetime
 from logic.matchmaker_logic import balance_teams, calculate_map_votes
 from ui.map_voting_ui import MapVotingView
 
@@ -106,7 +107,6 @@ class TeamResultPublicView(discord.ui.View):
         if interaction.user.id not in self.participants:
             return await interaction.response.send_message("⚠️ 対戦参加者のみ投票できます。", ephemeral=True)
             
-        # 呼び出し時の引数の順序を (public_view, map_emojis) に統一
         vote_view = MapVotingView(self, MAP_EMOJIS)
         await interaction.response.send_message(
             content="> 🗺️ プレイしたいマップをリストから選択してください...", 
@@ -151,11 +151,9 @@ class HostControlView(discord.ui.View):
         score_a = sum(players_info[p_id]["score"] for p_id in team_a)
         score_b = sum(players_info[p_id]["score"] for p_id in team_b)
         
-        # エラー防止：リストが空の場合は「なし」という文字を入れる
         team_a_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_a]) if team_a else "なし"
         team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]) if team_b else "なし"
 
-        # 💡 公開パネルを「チーム分け結果」に書き換え、投票フェーズに移行する
         result_public_view = TeamResultPublicView(participants, self.host)
 
         embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
@@ -164,17 +162,16 @@ class HostControlView(discord.ui.View):
         embed.add_field(name=f"🔴 チームB (計: {score_b})", value=team_b_str, inline=True)
 
         try:
-            # 募集メッセージを上書きして結果を表示
             await self.public_message.edit(embed=embed, view=result_public_view)
         except Exception as e:
             print(f"メッセージの編集に失敗: {e}")
             pass
 
-        # ホスト操作パネルも「マップ決定」用ビューに差し替える
-        next_control_view = HostMapControlView(self.public_message, result_public_view, self.host)
+        # 💡 ここで sheet_manager を HostMapControlView に引き継ぐよう修正
+        next_control_view = HostMapControlView(self.public_message, result_public_view, self.host, self.sheet_manager)
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content="✅ **チーム分けが完了しました！**\nメンバーのマップ投票を集計するため、「マップ開票・決定」を押してください。",
+            content="✅ **チーム分けが完了しました！**\nメンバーのマップ投票を集計するため、タイミングを見て「マップ開票・決定」を押してください。",
             view=next_control_view
         )
 
@@ -201,11 +198,13 @@ class HostControlView(discord.ui.View):
 # 4. ホスト専用 操作パネル (マップ開票フェーズ)
 # ==========================================
 class HostMapControlView(discord.ui.View):
-    def __init__(self, public_message, result_public_view, host):
+    # 💡 sheet_manager を受け取れるように追加
+    def __init__(self, public_message, result_public_view, host, sheet_manager):
         super().__init__(timeout=None)
         self.public_message = public_message
         self.result_public_view = result_public_view
         self.host = host
+        self.sheet_manager = sheet_manager
 
     def is_authorized(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.host.id or interaction.user.guild_permissions.administrator
@@ -215,7 +214,9 @@ class HostMapControlView(discord.ui.View):
         if not self.is_authorized(interaction):
             return await interaction.response.send_message("権限がありません。", ephemeral=True)
         
-        # 集計ロジックを実行
+        await interaction.response.defer()
+        
+        # 1. 集計ロジックを実行
         chosen_map, max_vote_val = calculate_map_votes(
             self.result_public_view.map_votes_data, 
             self.result_public_view.participants, 
@@ -224,11 +225,49 @@ class HostMapControlView(discord.ui.View):
         
         map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）" if max_vote_val > 0 else f"🗺️ Map: **{chosen_map}**"
         
-        # 公開メッセージの更新 (マップ名確定、投票ボタン消去)
-        embed = self.public_message.embeds[0]
-        embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+        # 2. 【バグ修正】最新のメッセージデータを取得して書き換える（チーム分けが消えないようにする）
+        try:
+            latest_msg = await interaction.channel.fetch_message(self.public_message.id)
+            embed = latest_msg.embeds[0]
+            embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+            await latest_msg.edit(embed=embed, view=None)
+        except Exception as e:
+            print(f"最新メッセージの取得に失敗: {e}")
+            # 万が一失敗した場合は手元のデータを使う
+            embed = self.public_message.embeds[0]
+            if len(embed.fields) > 0:
+                embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+            await self.public_message.edit(embed=embed, view=None)
+
+        # 3. 【機能追加】スプレッドシートへの対戦ログ＆マップ投票データの記録
+        map_votes_count = {name: 0 for name in MAP_EMOJIS.keys()}
+        for p_id in self.result_public_view.participants.keys():
+            if p_id in self.result_public_view.map_votes_data:
+                voted = self.result_public_view.map_votes_data[p_id]
+                if voted in map_votes_count:
+                    map_votes_count[voted] += 1
+                    
+        match_data = {
+            "match_id": f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
+            "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+            "host_id": str(self.host.id),
+            "selected_map": chosen_map,
+            "participant_count": len(self.result_public_view.participants),
+            "total_votes": sum(map_votes_count.values()),
+            "map_votes": map_votes_count
+        }
         
-        await self.public_message.edit(embed=embed, view=None)
+        try:
+            map_names = list(MAP_EMOJIS.keys())
+            self.sheet_manager.record_match_log(match_data, map_names)
+            log_msg = "\n📊 対戦ログとマップ投票結果をスプレッドシートに記録しました。"
+        except Exception as e:
+            print(f"対戦ログの記録に失敗しました: {e}")
+            log_msg = "\n⚠️ スプレッドシートへのログ記録に失敗しましたが、進行には影響ありません。"
         
         # ホスト操作パネルを消去して完了
-        await interaction.response.edit_message(content="🎉 **マップを決定しました！**", view=None)
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            content=f"🎉 **マップを決定し、募集プロセスが完了しました！**{log_msg}\n対戦をお楽しみください！ (GLHF)", 
+            view=None
+        )
