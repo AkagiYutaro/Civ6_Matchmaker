@@ -1,5 +1,4 @@
 import discord
-import datetime
 from logic.matchmaker_logic import balance_teams, calculate_map_votes
 from ui.map_voting_ui import MapVotingView
 
@@ -58,7 +57,6 @@ class MatchmakerPublicView(discord.ui.View):
         else:
             await interaction.response.send_message("まだ参加登録していません！", ephemeral=True)
 
-
 # ==========================================
 # 不在者削除用のセレクトUI (ホスト専用)
 # ==========================================
@@ -91,7 +89,6 @@ class RemovePlayerView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(RemovePlayerSelect(public_view, original_message))
 
-
 # ==========================================
 # 2. チーム分け後の公開用パネル (マップ投票ボタン表示)
 # ==========================================
@@ -113,7 +110,6 @@ class TeamResultPublicView(discord.ui.View):
             view=vote_view, 
             ephemeral=True
         )
-
 
 # ==========================================
 # 3. ホスト専用 操作パネル (募集フェーズ)
@@ -167,11 +163,11 @@ class HostControlView(discord.ui.View):
             print(f"メッセージの編集に失敗: {e}")
             pass
 
-        # 💡 ここで sheet_manager を HostMapControlView に引き継ぐよう修正
+        # sheet_manager を HostMapControlView に引き継ぐ
         next_control_view = HostMapControlView(self.public_message, result_public_view, self.host, self.sheet_manager)
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content="✅ **チーム分けが完了しました！**\nメンバーのマップ投票を集計するため、タイミングを見て「マップ開票・決定」を押してください。",
+            content="✅ **チーム分けが完了しました！**\nマップ開票・決定」を押してください。",
             view=next_control_view
         )
 
@@ -193,12 +189,10 @@ class HostControlView(discord.ui.View):
         await self.public_message.delete()
         await interaction.response.edit_message(content="⚠️ 募集をキャンセルしました。", view=None)
 
-
 # ==========================================
 # 4. ホスト専用 操作パネル (マップ開票フェーズ)
 # ==========================================
 class HostMapControlView(discord.ui.View):
-    # 💡 sheet_manager を受け取れるように追加
     def __init__(self, public_message, result_public_view, host, sheet_manager):
         super().__init__(timeout=None)
         self.public_message = public_message
@@ -225,7 +219,7 @@ class HostMapControlView(discord.ui.View):
         
         map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）" if max_vote_val > 0 else f"🗺️ Map: **{chosen_map}**"
         
-        # 2. 【バグ修正】最新のメッセージデータを取得して書き換える（チーム分けが消えないようにする）
+        # 2. 最新のメッセージデータを取得して書き換える
         try:
             latest_msg = await interaction.channel.fetch_message(self.public_message.id)
             embed = latest_msg.embeds[0]
@@ -233,41 +227,28 @@ class HostMapControlView(discord.ui.View):
             await latest_msg.edit(embed=embed, view=None)
         except Exception as e:
             print(f"最新メッセージの取得に失敗: {e}")
-            # 万が一失敗した場合は手元のデータを使う
             embed = self.public_message.embeds[0]
             if len(embed.fields) > 0:
                 embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
             await self.public_message.edit(embed=embed, view=None)
 
-        # 3. 【機能追加】スプレッドシートへの対戦ログ＆マップ投票データの記録
-        map_votes_count = {name: 0 for name in MAP_EMOJIS.keys()}
-        for p_id in self.result_public_view.participants.keys():
-            if p_id in self.result_public_view.map_votes_data:
-                voted = self.result_public_view.map_votes_data[p_id]
-                if voted in map_votes_count:
-                    map_votes_count[voted] += 1
-                    
-        match_data = {
-            "match_id": f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
-            "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
-            "host_id": str(self.host.id),
-            "selected_map": chosen_map,
-            "participant_count": len(self.result_public_view.participants),
-            "total_votes": sum(map_votes_count.values()),
-            "map_votes": map_votes_count
-        }
+        # 3. 切り離した「スプレッドシート統合記録」メソッドを呼び出し
+        success = self.sheet_manager.save_match_results(
+            chosen_map=chosen_map,
+            map_votes_data=self.result_public_view.map_votes_data,
+            participants=self.result_public_view.participants,
+            map_emojis=MAP_EMOJIS,
+            host_id=self.host.id
+        )
         
-        try:
-            map_names = list(MAP_EMOJIS.keys())
-            self.sheet_manager.record_match_log(match_data, map_names)
-            log_msg = "\n📊 対戦ログとマップ投票結果をスプレッドシートに記録しました。"
-        except Exception as e:
-            print(f"対戦ログの記録に失敗しました: {e}")
-            log_msg = "\n⚠️ スプレッドシートへのログ記録に失敗しましたが、進行には影響ありません。"
+        if success:
+            log_msg = "\n📊 対戦ログとマップ統計をスプレッドシートに記録しました。"
+        else:
+            log_msg = "\n⚠️ スプレッドシートへの記録に失敗しましたが、進行には影響ありません。"
         
         # ホスト操作パネルを消去して完了
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content=f"🎉 **マップを決定し、募集プロセスが完了しました！**{log_msg}\n対戦をお楽しみください！ (GLHF)", 
+            content=f"🗺️ **マップを決定しました！**　\n {log_msg}", 
             view=None
         )
