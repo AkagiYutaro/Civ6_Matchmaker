@@ -205,7 +205,7 @@ class SheetManager:
             return False
 
     def update_map_stats(self, chosen_map: str, map_votes_count: dict):
-        """MAPシートの採用回数と累計得票数を加算・更新する"""
+        """MAPシートの採用回数と累計獲得票数を加算・更新する"""
         try:
             ws = self.sheet.worksheet("MAP")
             headers = [str(h).strip() for h in ws.row_values(1)]
@@ -215,8 +215,8 @@ class SheetManager:
             if "採用回数" not in headers:
                 headers.append("採用回数")
                 needs_update = True
-            if "累計得票数" not in headers:
-                headers.append("累計得票数")
+            if "累計獲得票数" not in headers:
+                headers.append("累計獲得票数")
                 needs_update = True
                 
             if needs_update:
@@ -227,7 +227,7 @@ class SheetManager:
 
             col_map_name = headers.index("マップ名") if "マップ名" in headers else 0
             col_picked = headers.index("採用回数")
-            col_votes = headers.index("累計得票数")
+            col_votes = headers.index("累計獲得票数")
             
             all_values = ws.get_all_values()
             
