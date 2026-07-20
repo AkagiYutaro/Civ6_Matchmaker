@@ -1,7 +1,8 @@
 import discord
+import datetime
 from logic.matchmaker_logic import balance_teams, calculate_map_votes
 from ui.map_voting_ui import MapVotingView
-from ui.banpick_ui import BanPickStartView
+from ui.banpick_ui import BanPickStartView # 💡 BAN/PICKへの移行用にインポート
 
 MAP_EMOJIS = {
     "七つの海": "7️⃣",
@@ -98,7 +99,11 @@ class TeamResultPublicView(discord.ui.View):
         super().__init__(timeout=None)
         self.participants = participants
         self.host = host
-        self.map_votes_data = {} # 誰が何に投票したかを保持
+        self.map_votes_data = {}
+        
+        # 💡 BAN/PICKに引き継ぐためにチームメンバーのIDリストを保持できるように追加
+        self.team_a_ids = []
+        self.team_b_ids = []
 
     @discord.ui.button(label="🗺️ マップ投票", style=discord.ButtonStyle.success, custom_id="civ_vote_map_btn")
     async def vote_map_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -137,7 +142,6 @@ class HostControlView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # スコア取得と均等化ロジック
         players_info = self.sheet_manager.get_player_scores(list(participants.keys()))
         for p_id, p_data in list(players_info.items()):
             if p_data is None:
@@ -152,7 +156,8 @@ class HostControlView(discord.ui.View):
         team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]) if team_b else "なし"
 
         result_public_view = TeamResultPublicView(participants, self.host)
-        # 💡 BAN/PICKに引き継ぐためにチームIDリストを保存
+        
+        # 💡 ここでチームメンバー情報をTeamResultPublicViewに保存する
         result_public_view.team_a_ids = team_a
         result_public_view.team_b_ids = team_b
 
@@ -167,11 +172,10 @@ class HostControlView(discord.ui.View):
             print(f"メッセージの編集に失敗: {e}")
             pass
 
-        # sheet_manager を HostMapControlView に引き継ぐ
         next_control_view = HostMapControlView(self.public_message, result_public_view, self.host, self.sheet_manager)
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content="✅ **チーム分けが完了しました！**\nマップ開票・決定」を押してください。",
+            content="✅ **チーム分けが完了しました！**\nメンバーのマップ投票を集計するため、タイミングを見て「マップ開票・決定」を押してください。",
             view=next_control_view
         )
 
@@ -214,7 +218,7 @@ class HostMapControlView(discord.ui.View):
         
         await interaction.response.defer()
         
-        # 1. 集計ロジックを実行
+        # 1. 投票の集計
         chosen_map, max_vote_val = calculate_map_votes(
             self.result_public_view.map_votes_data, 
             self.result_public_view.participants, 
@@ -223,39 +227,61 @@ class HostMapControlView(discord.ui.View):
         
         map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）" if max_vote_val > 0 else f"🗺️ Map: **{chosen_map}**"
         
-        # 2. 最新のメッセージデータを取得して書き換える
+        # 2. 公開メッセージの更新 (マップ確定、投票ボタン消去)
         try:
             latest_msg = await interaction.channel.fetch_message(self.public_message.id)
             embed = latest_msg.embeds[0]
             embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
             await latest_msg.edit(embed=embed, view=None)
-        except Exception as e:
-            print(f"最新メッセージの取得に失敗: {e}")
+        except Exception:
             embed = self.public_message.embeds[0]
             if len(embed.fields) > 0:
                 embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
             await self.public_message.edit(embed=embed, view=None)
 
-        # 3. 切り離した「スプレッドシート統合記録」メソッドを呼び出し
-        success = self.sheet_manager.save_match_results(
-            chosen_map=chosen_map,
-            map_votes_data=self.result_public_view.map_votes_data,
-            participants=self.result_public_view.participants,
-            map_emojis=MAP_EMOJIS,
-            host_id=self.host.id
+        # 3. スプレッドシートへの対戦ログ記録
+        map_votes_count = {name: 0 for name in MAP_EMOJIS.keys()}
+        for p_id in self.result_public_view.participants.keys():
+            if p_id in self.result_public_view.map_votes_data:
+                voted = self.result_public_view.map_votes_data[p_id]
+                if voted in map_votes_count:
+                    map_votes_count[voted] += 1
+                    
+        match_data = {
+            "match_id": f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
+            "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+            "host_id": str(self.host.id),
+            "selected_map": chosen_map,
+            "participant_count": len(self.result_public_view.participants),
+            "total_votes": sum(map_votes_count.values()),
+            "map_votes": map_votes_count
+        }
+        
+        try:
+            map_names = list(MAP_EMOJIS.keys())
+            self.sheet_manager.record_match_log(match_data, map_names)
+        except Exception as e:
+            print(f"対戦ログの記録に失敗しました: {e}")
+
+        # 4. 💡 全員へのマップ通知と、BAN/PICKへの移行ボタン送信
+        participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
+        
+        # チームIDリストを引き継いでBanPickStartViewを作成
+        bp_view = BanPickStartView(
+            host=self.host,
+            team_a=self.result_public_view.team_a_ids,
+            team_b=self.result_public_view.team_b_ids,
+            sheet_manager=self.sheet_manager
         )
         
-        # ホスト操作パネルを消去して完了（ホストへのみ表示）
-        await interaction.followup.edit_message(
-            message_id=interaction.message.id,
-            content="✅ **マップ開票と集計が完了しました。**", 
-            view=None
+        await interaction.channel.send(
+            content=f"{participants_mention} \n🗺️ Map ： **【 {chosen_map} 】**に決定\n以下のボタンからBAN/PICKを開始してください。",
+            view=bp_view
         )
 
-        # 全てのプレイヤーが見えるように公開チャンネルへ新しく通知を送信
-        participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
-        await interaction.channel.send(
-            content=f"{participants_mention} \n🗺️ Map ： **【 {chosen_map} 】**に決定"
+        # 5. ホストの操作パネルを終了
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            content="✅ マップ開票と集計が完了しました。", 
+            view=None
         )
-    
-    
