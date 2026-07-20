@@ -82,7 +82,14 @@ class BanPickPhaseManager:
                 page_title = f"Leader - {i}/{total_pages}" if total_pages > 1 else "Leader"
                 target_embed.add_field(name=page_title, value=val, inline=True)
 
+        # 💡 追加: チームA用のEmbed (embed_a) を新しく定義して構築する
+        embed_a = discord.Embed(color=discord.Color.blue())
+        team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
+        embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
         add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
+        
+        embed_b = discord.Embed(color=discord.Color.red())
+        team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
         
         embed_b = discord.Embed(color=discord.Color.red())
         team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
@@ -263,20 +270,31 @@ class GlobalBanView(discord.ui.View):
             
             manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager)
             
+            def format_list(uid_list):
+                names = []
+                for i, uid in enumerate(uid_list, start=1):
+                    leader = next((l for l in self.all_leaders if l['uid'] == uid), None)
+                    if leader:
+                        emoji = leader.get('emoji_text', '')
+                        name = leader['clean_name']
+                        names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
+                return "\n".join(names) if names else "なし"
+                
+            # 生き残りリストを毎回ランダムにシャッフルする
             random.shuffle(available_leaders)
 
+            # 💡 修正: ユーザー様のご指摘通り、関数を使って一発で分割と通し番号の付与を行う
+            from logic.banpick_logic import split_and_number_leaders
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
 
-            embed_a = discord.Embed(
+            # 💡 変更: フェーズ2も3つのEmbedに分割 (BAN一覧, チームA, チームB)
+            embed_ban = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
                 description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
-                color=discord.Color.blue()
+                color=discord.Color.dark_grey()
             )
+            embed_ban.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
             
-            team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
-            embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
-            embed_a.add_field(name="🌐 確定したグローバルBAN", value=format_leader_list(banned_global, self.all_leaders), inline=False)
-
             def add_team_fields(target_embed, team_label, leader_list):
                 chunk_size = 20
                 chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
@@ -293,18 +311,20 @@ class GlobalBanView(discord.ui.View):
                     page_title = f"Leader - {i}/{total_pages}" if total_pages > 1 else "Leader"
                     target_embed.add_field(name=page_title, value=val, inline=True)
 
+            # 💡 変更: チームA用の枠を独立させる
+            embed_a = discord.Embed(color=discord.Color.blue())
+            team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
+            embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
             add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
             
+            # 💡 変更: チームB用の枠を独立させる
             embed_b = discord.Embed(color=discord.Color.red())
             team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
             embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
-            
-            embed_b.add_field(name="🌐 確定したグローバルBAN", value=format_leader_list(banned_global, self.all_leaders), inline=False)
-            
             add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
             
-            # 💡 修正: interaction.response.edit_message を interaction.message.edit に変更
-            await interaction.message.edit(content=None, embeds=[embed_a, embed_b], view=None)
+            # 💡 修正: 分割した3つのEmbedを同時に表示する (response.edit_messageを使用)
+            await interaction.response.edit_message(content=None, embeds=[embed_ban, embed_a, embed_b], view=None)
             
             chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
             chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
