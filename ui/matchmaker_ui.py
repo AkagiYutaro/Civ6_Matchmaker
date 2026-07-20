@@ -1,6 +1,7 @@
 import discord
 from logic.matchmaker_logic import balance_teams, calculate_map_votes
 from ui.map_voting_ui import MapVotingView
+from ui.banpick_ui import BanPickStartView
 
 MAP_EMOJIS = {
     "七つの海": "7️⃣",
@@ -151,6 +152,9 @@ class HostControlView(discord.ui.View):
         team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]) if team_b else "なし"
 
         result_public_view = TeamResultPublicView(participants, self.host)
+        # 💡 BAN/PICKに引き継ぐためにチームIDリストを保存
+        result_public_view.team_a_ids = team_a
+        result_public_view.team_b_ids = team_b
 
         embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
         embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
@@ -253,3 +257,5 @@ class HostMapControlView(discord.ui.View):
         await interaction.channel.send(
             content=f"{participants_mention} \n🗺️ Map ： **【 {chosen_map} 】**に決定"
         )
+    
+    
