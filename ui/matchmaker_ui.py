@@ -251,5 +251,5 @@ class HostMapControlView(discord.ui.View):
         # 全てのプレイヤーが見えるように公開チャンネルへ新しく通知を送信
         participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
         await interaction.channel.send(
-            content=f"{participants_mention} \n🗺️ **【 {chosen_map} 】に決定**"
+            content=f"{participants_mention} \n🗺️ Map ： **【 {chosen_map} 】**に決定"
         )
