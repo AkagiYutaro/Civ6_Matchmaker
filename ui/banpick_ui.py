@@ -36,7 +36,8 @@ class BanPickPhaseManager:
             self.banned_b = banned_list
             self.b_done = True
 
-        await interaction.response.edit_message(content=f"✅ チーム{team_name}のBAN選択が完了しました！相手を待っています...", view=None)
+        # 💡 修正: interaction.response.edit_message を interaction.message.edit に変更
+        await interaction.message.edit(content=f"✅ チーム{team_name}のBAN選択が完了しました！相手を待っています...", view=None)
 
         if self.a_done and self.b_done:
             await self.announce_results()
@@ -54,18 +55,14 @@ class BanPickPhaseManager:
         
         random.shuffle(survivors)
         
-        # 💡 [修正] タイトルの文言を変更
-        embed_a = discord.Embed(title="BAN/PICK 結果", color=discord.Color.blue())
-        
-        team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
-        embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
+        # 1. 確定したBANリスト用の独立したEmbed
+        embed_ban = discord.Embed(title="BAN/PICK 結果", color=discord.Color.dark_grey())
         
         ban_text = f"**【🌐 グローバルBAN】**\n" + format_leader_list(self.global_banned, self.all_leaders) + "\n\n"
         ban_text += f"**【🔵 チームAのBAN】**\n" + format_leader_list(self.banned_a, self.all_leaders) + "\n\n"
         ban_text += f"**【🔴 チームBのBAN】**\n" + format_leader_list(self.banned_b, self.all_leaders)
         
-        # 💡 [修正] フィールド名の文言を変更
-        embed_a.add_field(name="🚫 確定したBAN", value=ban_text, inline=False)
+        embed_ban.add_field(name="🚫 確定したBAN", value=ban_text, inline=False)
         
         list_a, list_b = split_and_number_leaders(survivors, 'final_disp_no')
             
@@ -95,7 +92,7 @@ class BanPickPhaseManager:
         # 💡 [修正] フッターの文言を変更
         embed_b.set_footer(text="リストから指導者をピックしてください")
         
-        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embeds=[embed_a, embed_b])
+        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embeds=[embed_ban, embed_a, embed_b])
 
 
 # ==========================================
@@ -126,6 +123,9 @@ class ConfirmTargetBanButton(discord.ui.Button):
             await interaction.response.send_message(f"⚠️ 合計 **{self.required_bans}個** 選んでください！（現在: {total_selected}個）", ephemeral=True)
             return
             
+        # 💡 追加: 処理に時間がかかる可能性があるため、即座に応答を遅延させる
+        await interaction.response.defer()
+        
         selected_uids = []
         for s in view.selects:
             selected_uids.extend(s.values)
@@ -181,7 +181,9 @@ class TargetBanView(discord.ui.View):
         else:
             self.confirm_btn.style = discord.ButtonStyle.secondary
             
-        await interaction.response.edit_message(view=self)
+        # 💡 追加・修正: 応答を遅延させてからメッセージ自体を編集する
+        await interaction.response.defer()
+        await interaction.message.edit(view=self)
 
 
 # ==========================================
@@ -228,6 +230,9 @@ class GlobalBanView(discord.ui.View):
         if interaction.user.id != self.rep_a and not is_admin:
             return await interaction.response.send_message(f"チームAの代表者(<@{self.rep_a}>)のみ操作可能です。", ephemeral=True)
             
+        # 💡 追加: 応答タイムアウトを防ぐため即座に defer を実行
+        await interaction.response.defer()
+        
         self.banned_a = self.select_a.values[0]
         self.select_a.disabled = True
         await self.check_ready(interaction)
@@ -237,6 +242,9 @@ class GlobalBanView(discord.ui.View):
         if interaction.user.id != self.rep_b and not is_admin:
             return await interaction.response.send_message(f"チームBの代表者(<@{self.rep_b}>)のみ操作可能です。", ephemeral=True)
             
+        # 💡 追加: 応答タイムアウトを防ぐため即座に defer を実行
+        await interaction.response.defer()
+        
         self.banned_b = self.select_b.values[0]
         self.select_b.disabled = True
         await self.check_ready(interaction)
@@ -295,7 +303,8 @@ class GlobalBanView(discord.ui.View):
             
             add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
             
-            await interaction.response.edit_message(content=None, embeds=[embed_a, embed_b], view=None)
+            # 💡 修正: interaction.response.edit_message を interaction.message.edit に変更
+            await interaction.message.edit(content=None, embeds=[embed_a, embed_b], view=None)
             
             chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
             chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
@@ -309,7 +318,8 @@ class GlobalBanView(discord.ui.View):
             manager.msg_a = msg_a
             manager.msg_b = msg_b
         else:
-            await interaction.response.edit_message(view=self)
+            # 💡 修正: interaction.response.edit_message を interaction.message.edit に変更
+            await interaction.message.edit(view=self)
 
 # ==========================================
 # エントリーポイント
@@ -357,4 +367,5 @@ class BanPickStartView(discord.ui.View):
         embed = discord.Embed(title="【🌐 フェーズ1: グローバルBAN】", description=f"両チームの代表者(<@{rep_a_id}>, <@{rep_b_id}>)は、以下のメニューから1つずつ除外する文明を選択してください。\n*(※管理者は代理操作が可能です)*", color=discord.Color.red())
         bp_view = GlobalBanView(self.host, self.team_a, self.team_b, global_pool, all_leaders, required_bans, self.sheet_manager)
         
-        await interaction.followup.edit_message(message_id=interaction.message.id, content="⚔️ **BAN/PICKフェーズを開始します！**", embed=embed, view=bp_view)
+        # 💡 修正: interaction.followup.edit_message を interaction.message.edit に変更
+        await interaction.message.edit(content="⚔️ **BAN/PICKフェーズを開始します！**", embed=embed, view=bp_view)
