@@ -241,14 +241,15 @@ class HostMapControlView(discord.ui.View):
             host_id=self.host.id
         )
         
-        if success:
-            log_msg = "\n📊 対戦ログとマップ統計をスプレッドシートに記録しました。"
-        else:
-            log_msg = "\n⚠️ スプレッドシートへの記録に失敗しましたが、進行には影響ありません。"
-        
-        # ホスト操作パネルを消去して完了
+        # ホスト操作パネルを消去して完了（ホストへのみ表示）
         await interaction.followup.edit_message(
             message_id=interaction.message.id,
-            content=f"🗺️ **マップを決定しました！**　\n {log_msg}", 
+            content="✅ **マップ開票と集計が完了しました。**", 
             view=None
+        )
+
+        # 全てのプレイヤーが見えるように公開チャンネルへ新しく通知を送信
+        participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
+        await interaction.channel.send(
+            content=f"{participants_mention} \n🗺️ **【 {chosen_map} 】に決定**"
         )
