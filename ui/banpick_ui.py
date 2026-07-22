@@ -115,7 +115,7 @@ class ChunkedBanSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # 選択されるたびに画面を更新（まだ確定はしない）
+        # 選択されるたびに親のViewを更新する
         await self.view.update_button(interaction)
 
 class ConfirmTargetBanButton(discord.ui.Button):
@@ -187,30 +187,14 @@ class TargetBanView(discord.ui.View):
         else:
             self.confirm_btn.style = discord.ButtonStyle.secondary
             
-        # 現在選択中のUIDを全て取得
-        selected_uids = []
-        for s in self.selects:
-            selected_uids.extend(s.values)
-            
-        # 選択された指導者の名前と絵文字を整形
-        selected_text = "なし"
-        if selected_uids:
-            names = []
-            for uid in selected_uids:
-                leader = next((l for l in self.manager.all_leaders if l['uid'] == uid), None)
-                if leader:
-                    emoji = leader.get('emoji_text', '')
-                    name = leader['clean_name']
-                    names.append(f"・ {emoji} {name}" if emoji else f"・ {name}")
-            selected_text = "\n".join(names)
-            
-        # チームの他のメンバーにも見えるように、メッセージ本文(content)に選択状況を追記して更新
-        team_emoji = "🔵" if self.team_name == "A" else "🔴"
-        base_content = f"{team_emoji} **チーム{self.team_name} 代表者 <@{self.rep_id}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。"
-        
-        new_content = f"{base_content}\n\n**【現在の選択状況 ({total}/{self.required_bans})】**\n{selected_text}"
-
-        await interaction.response.edit_message(content=new_content, view=self)
+        # 💡 ここが魔法のコード！
+        # 全てのドロップダウンの選択肢をループし、現在選ばれているものを「デフォルト(表示状態)」にする
+        for select in self.selects:
+            for option in select.options:
+                option.default = option.value in select.values
+                
+        # メッセージを更新（これにより、他の人の画面でもドロップダウン内にチップが表示されます）
+        await interaction.response.edit_message(view=self)
 
 
 # ==========================================
@@ -286,7 +270,6 @@ class GlobalBanView(discord.ui.View):
             
             manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager)
             
-            # 生き残りリストを毎回ランダムにシャッフルする
             random.shuffle(available_leaders)
 
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
@@ -327,19 +310,14 @@ class GlobalBanView(discord.ui.View):
             
             await interaction.edit_original_response(content=None, embeds=[embed_ban, embed_a, embed_b], view=None)
             
-            # ドロップダウンメニュー用 (各チームごとにチャンク分割する)
             chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
             chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
             
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks_a, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks_b, manager, "B")
             
-            # チームメンバーへの状況共有用に、初期メッセージに「現在の選択状況: なし」を含める
-            msg_a_content = f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n\n**【現在の選択状況 (0/{self.required_bans})】**\nなし"
-            msg_b_content = f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n\n**【現在の選択状況 (0/{self.required_bans})】**\nなし"
-
-            msg_a = await interaction.channel.send(content=msg_a_content, view=view_a)
-            msg_b = await interaction.channel.send(content=msg_b_content, view=view_b)
+            msg_a = await interaction.channel.send(content=f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_a)
+            msg_b = await interaction.channel.send(content=f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_b)
             
             manager.msg_a = msg_a
             manager.msg_b = msg_b
@@ -383,7 +361,6 @@ class BanPickStartView(discord.ui.View):
         raw_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
         all_leaders, global_pool = prepare_leader_data(raw_leaders)
             
-        # フェーズ2のBAN数を5名に固定
         required_bans = 5
 
         rep_a_id = self.team_a[0] if self.team_a else self.host.id
