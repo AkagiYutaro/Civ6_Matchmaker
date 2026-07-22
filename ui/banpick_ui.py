@@ -39,6 +39,7 @@ class BanPickPhaseManager:
             self.banned_b = banned_list
             self.b_done = True
 
+        # 確定ボタンが押されたら、操作パネル(view)を消して待機メッセージに変更する
         await interaction.response.edit_message(content=f"✅ チーム{team_name}のBAN選択が完了しました！相手を待っています...", view=None)
 
         if self.a_done and self.b_done:
@@ -114,6 +115,7 @@ class ChunkedBanSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # 選択されるたびに画面を更新（まだ確定はしない）
         await self.view.update_button(interaction)
 
 class ConfirmTargetBanButton(discord.ui.Button):
@@ -133,6 +135,7 @@ class ConfirmTargetBanButton(discord.ui.Button):
         for s in view.selects:
             selected_uids.extend(s.values)
             
+        # 確定ボタンが押されて初めてBAN処理を実行
         await view.manager.report_ban_done(view.team_name, selected_uids, interaction)
 
 class TargetBanView(discord.ui.View):
@@ -184,7 +187,30 @@ class TargetBanView(discord.ui.View):
         else:
             self.confirm_btn.style = discord.ButtonStyle.secondary
             
-        await interaction.response.edit_message(view=self)
+        # 現在選択中のUIDを全て取得
+        selected_uids = []
+        for s in self.selects:
+            selected_uids.extend(s.values)
+            
+        # 選択された指導者の名前と絵文字を整形
+        selected_text = "なし"
+        if selected_uids:
+            names = []
+            for uid in selected_uids:
+                leader = next((l for l in self.manager.all_leaders if l['uid'] == uid), None)
+                if leader:
+                    emoji = leader.get('emoji_text', '')
+                    name = leader['clean_name']
+                    names.append(f"・ {emoji} {name}" if emoji else f"・ {name}")
+            selected_text = "\n".join(names)
+            
+        # チームの他のメンバーにも見えるように、メッセージ本文(content)に選択状況を追記して更新
+        team_emoji = "🔵" if self.team_name == "A" else "🔴"
+        base_content = f"{team_emoji} **チーム{self.team_name} 代表者 <@{self.rep_id}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。"
+        
+        new_content = f"{base_content}\n\n**【現在の選択状況 ({total}/{self.required_bans})】**\n{selected_text}"
+
+        await interaction.response.edit_message(content=new_content, view=self)
 
 
 # ==========================================
@@ -308,8 +334,12 @@ class GlobalBanView(discord.ui.View):
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks_a, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks_b, manager, "B")
             
-            msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_a)
-            msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_b)
+            # チームメンバーへの状況共有用に、初期メッセージに「現在の選択状況: なし」を含める
+            msg_a_content = f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n\n**【現在の選択状況 (0/{self.required_bans})】**\nなし"
+            msg_b_content = f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。\n\n**【現在の選択状況 (0/{self.required_bans})】**\nなし"
+
+            msg_a = await interaction.channel.send(content=msg_a_content, view=view_a)
+            msg_b = await interaction.channel.send(content=msg_b_content, view=view_b)
             
             manager.msg_a = msg_a
             manager.msg_b = msg_b
