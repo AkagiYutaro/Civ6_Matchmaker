@@ -90,9 +90,6 @@ class BanPickPhaseManager:
         
         embed_b = discord.Embed(color=discord.Color.red())
         team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
-        
-        embed_b = discord.Embed(color=discord.Color.red())
-        team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
         embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
         add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
         
@@ -280,14 +277,13 @@ class GlobalBanView(discord.ui.View):
                         names.append(f"{i}. {emoji} {name}" if emoji else f"{i}. {name}")
                 return "\n".join(names) if names else "なし"
                 
-            # 生き残りリストを毎回ランダムにシャッフルする
+            # 生き残りリストを毎回ランダムにシャッフル
             random.shuffle(available_leaders)
 
-            # 💡 修正: ユーザー様のご指摘通り、関数を使って一発で分割と通し番号の付与を行う
-            from logic.banpick_logic import split_and_number_leaders
+            # 均等分割とターゲットBAN用通し番号(target_disp_no)の付与
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
 
-            # 💡 変更: フェーズ2も3つのEmbedに分割 (BAN一覧, チームA, チームB)
+            # 1. 確定グローバルBAN用の独立Embed
             embed_ban = discord.Embed(
                 title="【フェーズ2: ターゲットBAN】", 
                 description="グローバルBANが完了しました。続いて各チームのBANを行います。", 
@@ -295,6 +291,7 @@ class GlobalBanView(discord.ui.View):
             )
             embed_ban.add_field(name="🌐 確定したグローバルBAN", value=format_list(banned_global), inline=False)
             
+            # 候補リストを20人ごとのチャンクに分けて横並び(inline)で描画する共通関数
             def add_team_fields(target_embed, team_label, leader_list):
                 chunk_size = 20
                 chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
@@ -308,24 +305,25 @@ class GlobalBanView(discord.ui.View):
                         names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
                     
                     val = "\n".join(names) if names else "なし"
-                    page_title = f"Leader - {i}/{total_pages}" if total_pages > 1 else "Leader"
+                    page_title = f"{team_label} - {i}/{total_pages}" if total_pages > 1 else team_label
                     target_embed.add_field(name=page_title, value=val, inline=True)
 
-            # 💡 変更: チームA用の枠を独立させる
+            # 2. チームA用Embed
             embed_a = discord.Embed(color=discord.Color.blue())
             team_a_players = " ".join([f"<@{uid}>" for uid in self.team_a]) if self.team_a else "なし"
             embed_a.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
-            add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
+            add_team_fields(embed_a, "Leader", list_a)
             
-            # 💡 変更: チームB用の枠を独立させる
+            # 3. チームB用Embed
             embed_b = discord.Embed(color=discord.Color.red())
             team_b_players = " ".join([f"<@{uid}>" for uid in self.team_b]) if self.team_b else "なし"
             embed_b.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
-            add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
+            add_team_fields(embed_b, "Leader", list_b)
             
-            # 💡 修正: 分割した3つのEmbedを同時に表示する (response.edit_messageを使用)
+            # 分割した3つのEmbedを1つのレスポンスで同時に表示
             await interaction.response.edit_message(content=None, embeds=[embed_ban, embed_a, embed_b], view=None)
             
+            # チームごとのBAN選択用ドロップダウン（25件ずつ分割）の生成と送信
             chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
             chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
             
@@ -338,8 +336,7 @@ class GlobalBanView(discord.ui.View):
             manager.msg_a = msg_a
             manager.msg_b = msg_b
         else:
-            # 💡 修正: interaction.response.edit_message を interaction.message.edit に変更
-            await interaction.message.edit(view=self)
+            await interaction.response.edit_message(view=self)
 
 # ==========================================
 # エントリーポイント
