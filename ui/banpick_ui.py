@@ -39,8 +39,7 @@ class BanPickPhaseManager:
             self.banned_b = banned_list
             self.b_done = True
 
-        # 💡 embed=None を追加し、確定後は一時的な選択リストの表示を消す
-        await interaction.response.edit_message(content=f"✅ チーム{team_name}のBAN選択が完了しました！相手を待っています...", embed=None, view=None)
+        await interaction.response.edit_message(content=f"✅ チーム{team_name}のBAN選択が完了しました！相手を待っています...", view=None)
 
         if self.a_done and self.b_done:
             await self.announce_results()
@@ -185,29 +184,7 @@ class TargetBanView(discord.ui.View):
         else:
             self.confirm_btn.style = discord.ButtonStyle.secondary
             
-        # 選択された全指導者のIDと名前を取得
-        selected_uids = []
-        for s in self.selects:
-            selected_uids.extend(s.values)
-            
-        selected_names = []
-        for uid in selected_uids:
-            leader = next((l for l in self.manager.all_leaders if l['uid'] == uid), None)
-            if leader:
-                emoji = leader.get('emoji_text', '')
-                name = leader['clean_name']
-                selected_names.append(f"{emoji} {name}" if emoji else name)
-                
-        # メッセージに付随しているEmbedの内容を書き換える
-        embed = interaction.message.embeds[0]
-        embed.title = f"{'🔵' if self.team_name == 'A' else '🔴'} 選択中のBAN候補 ({total}/{self.required_bans})"
-        
-        if selected_names:
-            embed.description = "\n".join(f"{i+1}. {name}" for i, name in enumerate(selected_names))
-        else:
-            embed.description = "未選択"
-            
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(view=self)
 
 
 # ==========================================
@@ -331,20 +308,8 @@ class GlobalBanView(discord.ui.View):
             view_a = TargetBanView(self.rep_a, self.required_bans, chunks_a, manager, "A")
             view_b = TargetBanView(self.rep_b, self.required_bans, chunks_b, manager, "B")
             
-            # 選択状況をリアルタイムで表示するための土台(Embed)を作成
-            embed_sel_a = discord.Embed(title=f"🔵 選択中のBAN候補 (0/{self.required_bans})", description="未選択", color=discord.Color.blue())
-            embed_sel_b = discord.Embed(title=f"🔴 選択中のBAN候補 (0/{self.required_bans})", description="未選択", color=discord.Color.red())
-            
-            msg_a = await interaction.channel.send(
-                content=f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。",
-                embed=embed_sel_a,
-                view=view_a
-            )
-            msg_b = await interaction.channel.send(
-                content=f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。",
-                embed=embed_sel_b,
-                view=view_b
-            )
+            msg_a = await interaction.channel.send(f"🔵 **チームA 代表者 <@{self.rep_a}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_a)
+            msg_b = await interaction.channel.send(f"🔴 **チームB 代表者 <@{self.rep_b}>** のBAN選択\n以下のリストから合計 **{self.required_bans}個** 選んで確定してください。", view=view_b)
             
             manager.msg_a = msg_a
             manager.msg_b = msg_b
