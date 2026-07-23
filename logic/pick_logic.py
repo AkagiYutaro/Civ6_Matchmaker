@@ -102,9 +102,7 @@ class PickPhaseManager:
         # 2. チームBAN
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="🚫 BAN", value=f"**【🔵 チームAのBAN】**\n{ban_a_str}", inline=True)
-        embed.add_field(name="🚫 BAN", value=f"**【🔴 チームBのBAN】**\n{ban_b_str}", inline=True)
-        embed.add_field(name="\u200B", value="\u200B", inline=True) # レイアウト調整用の空白
+        embed.add_field(name="🚫 BAN", value=f"**【🔵 チームAのBAN】**\n{ban_a_str}\n\n**【🔴 チームBのBAN】**\n{ban_b_str}", inline=False)
         
         # 3. チームPICK
         def get_pick_str(team_ids):
@@ -123,9 +121,6 @@ class PickPhaseManager:
         pick_a_str = get_pick_str(self.team_a)
         pick_b_str = get_pick_str(self.team_b)
         
-        embed.add_field(name="✅ PICK", value=f"**【🔵 チームAのPICK】**\n{pick_a_str}", inline=True)
-        embed.add_field(name="✅ PICK", value=f"**【🔴 チームBのPICK】**\n{pick_b_str}", inline=True)
-        embed.add_field(name="\u200B", value="\u200B", inline=True)
+        embed.add_field(name="✅ PICK", value=f"**【🔵 チームAのPICK】**\n{pick_a_str}\n\n**【🔴 チームBのPICK】**\n{pick_b_str}", inline=False)
         
-        # GLHFのフッターは削除
         await self.original_interaction.channel.send(embed=embed)
