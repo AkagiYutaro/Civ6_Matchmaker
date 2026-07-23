@@ -90,10 +90,17 @@ class BanPickPhaseManager:
                 page_title = f"{team_label} - {i}/{total_pages}" if total_pages > 1 else team_label
                 target_embed.add_field(name=page_title, value=val, inline=True)
 
+        embed_b.set_footer(text="リストから指導者をピックしてください")
+        
+        # 不要になった呼び出しボタンを消去
+        if self.msg_a:
+            try:
+                await self.msg_a.delete()
+            except: pass
+
+        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embeds=[embed_ban, embed_a, embed_b])
         add_team_fields(embed_a, "🔵 チームA ピック候補", list_a)
         add_team_fields(embed_b, "🔴 チームB ピック候補", list_b)
-        
-        embed_b.set_footer(text="リストから指導者をピックしてください")
         
         # 不要になった呼び出しボタンを消去
         if self.msg_a:
