@@ -101,8 +101,22 @@ class BanPickPhaseManager:
                 await self.msg_a.delete()
             except: pass
 
-        await self.original_interaction.channel.send(content="**========= BAN/PICK 完了！ =========**", embeds=[embed_ban, embed_a, embed_b])
+        await self.original_interaction.channel.send(content="**========= BANフェーズ完了！ =========**", embeds=[embed_ban, embed_a, embed_b])
 
+        # 💡 追加: PICKフェーズUIの呼び出し
+        from ui.pick_ui import start_pick_phase
+        await start_pick_phase(
+            self.original_interaction, 
+            self.host, 
+            self.team_a, 
+            self.team_b, 
+            survivors, 
+            self.all_leaders,
+            self.global_banned,
+            self.banned_a,
+            self.banned_b,
+            self.sheet_manager
+        )
 
 # ==========================================
 # フェーズ2: ephemeral ドロップダウン操作UI
