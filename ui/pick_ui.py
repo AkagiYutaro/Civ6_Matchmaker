@@ -1,145 +1,9 @@
 import discord
-import asyncio
-import time
-import random
 import logging
-from logic.banpick_logic import format_leader_list
+from logic.pick_logic import PickPhaseManager
 
-logger = logging.getLogger('discord.pick')
+logger = logging.getLogger('discord.pick_ui')
 
-def get_pick_timer(sheet_manager):
-    """スプレッドシートからピック制限時間を取得する（秒）。取得できなければ180秒(3分)とする"""
-    try:
-        master = sheet_manager.get_master_config()
-        for row in master:
-            if str(row.get("FLG名", "")) == "ピック時間" or str(row.get("カテゴリ", "")) == "ピック時間":
-                val = str(row.get("現在の配点", "")).strip()
-                if val.isdigit():
-                    return int(val)
-    except Exception as e:
-        logger.warning(f"ピック時間の取得に失敗しました。デフォルトの180秒を使用します。: {e}")
-    return 180
-
-# ==========================================
-# PICKフェーズ管理
-# ==========================================
-class PickPhaseManager:
-    def __init__(self, interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
-        self.original_interaction = interaction
-        self.host = host
-        self.team_a = team_a
-        self.team_b = team_b
-        self.survivors = survivors
-        self.all_leaders = all_leaders
-        
-        # 最終結果表示用
-        self.banned_global = banned_global
-        self.banned_a = banned_a
-        self.banned_b = banned_b
-        
-        # {user_id: {"leader": uid, "confirmed": bool}}
-        self.picks = {} 
-        self.is_completed = False
-        
-        self.duration = get_pick_timer(sheet_manager)
-        self.end_time = int(time.time()) + self.duration
-        self.timeout_task = None
-        self.entry_message = None
-
-    async def start(self):
-        """フェーズの開始とタイマーの起動"""
-        view = PickEntryView(self)
-        content = f"📢 **指導者ピックフェーズ**\n終了時刻: <t:{self.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*"
-        
-        self.entry_message = await self.original_interaction.channel.send(content=content, view=view)
-        self.timeout_task = asyncio.create_task(self.timer_loop())
-
-    async def timer_loop(self):
-        while self.end_time > time.time():
-            if self.is_completed:
-                return
-            await asyncio.sleep(1)
-            
-        if not self.is_completed:
-            self.force_confirm_unpicked()
-            await self.finish_pick()
-
-    def force_confirm_unpicked(self):
-        """時間切れになった場合、未確定の人にランダムで残りの指導者を割り当てる"""
-        all_players = self.team_a + self.team_b
-        used_uids = [d["leader"] for d in self.picks.values() if d.get("confirmed")]
-        available = [L['uid'] for L in self.survivors if L['uid'] not in used_uids]
-        
-        for uid in all_players:
-            data = self.picks.get(uid, {"leader": None, "confirmed": False})
-            if not data.get("confirmed"):
-                temp = data.get("leader")
-                # 仮選択があれば優先。他人に取られていたらランダム
-                if temp and temp in available:
-                    final_uid = temp
-                else:
-                    final_uid = random.choice(available)
-                
-                if final_uid in available:
-                    available.remove(final_uid)
-                self.picks[uid] = {"leader": final_uid, "confirmed": True}
-
-    async def check_all_completed(self):
-        all_players = self.team_a + self.team_b
-        confirmed_count = sum(1 for uid in all_players if self.picks.get(uid, {}).get("confirmed"))
-        if confirmed_count >= len(all_players):
-            self.is_completed = True
-            if self.timeout_task:
-                self.timeout_task.cancel()
-            await self.finish_pick()
-
-    async def finish_pick(self):
-        if self.entry_message:
-            try:
-                await self.entry_message.edit(content="✅ **全プレイヤーのピックが完了しました！**", view=None)
-            except: pass
-            
-        embed = discord.Embed(title="🎉 CIV6 最終結果 (BAN / PICK)", color=discord.Color.gold())
-        
-        # 1. 確定したBAN
-        global_str = format_leader_list(self.banned_global, self.all_leaders)
-        embed.add_field(name="🌐 1. 確定したBAN (グローバル)", value=global_str, inline=False)
-        
-        # 2. チームBAN
-        ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
-        ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="🚫 2. 【チームAのBAN】", value=ban_a_str, inline=True)
-        embed.add_field(name="🚫 2. 【チームBのBAN】", value=ban_b_str, inline=True)
-        embed.add_field(name="\u200B", value="\u200B", inline=True) # レイアウト調整用の空白
-        
-        # 3. チームPICK
-        def get_pick_str(team_ids):
-            lines = []
-            for uid in team_ids:
-                l_id = self.picks.get(uid, {}).get("leader")
-                leader = next((l for l in self.all_leaders if l['uid'] == l_id), None)
-                if leader:
-                    emoji = leader.get('emoji_text', '')
-                    name = leader['clean_name']
-                    lines.append(f"<@{uid}> : {emoji} **{name}**")
-                else:
-                    lines.append(f"<@{uid}> : ランダム(エラー)")
-            return "\n".join(lines) if lines else "なし"
-            
-        pick_a_str = get_pick_str(self.team_a)
-        pick_b_str = get_pick_str(self.team_b)
-        
-        embed.add_field(name="🔵 3. 【チームAのPICK】", value=pick_a_str, inline=True)
-        embed.add_field(name="🔴 3. 【チームBのPICK】", value=pick_b_str, inline=True)
-        embed.add_field(name="\u200B", value="\u200B", inline=True)
-        
-        embed.set_footer(text="ゲームを開始してください！ GLHF！")
-        await self.original_interaction.channel.send(embed=embed)
-
-
-# ==========================================
-# プレイヤー用 操作UI (ephemeral)
-# ==========================================
 class PickSelect(discord.ui.Select):
     def __init__(self, options, placeholder):
         super().__init__(placeholder=placeholder, min_values=0, max_values=1, options=options)
@@ -159,7 +23,6 @@ class PickSelect(discord.ui.Select):
         self.view.confirm_btn.disabled = not bool(self.view.selected_uid)
         await interaction.response.edit_message(view=self.view)
 
-
 class PickConfirmButton(discord.ui.Button):
     def __init__(self, disabled):
         super().__init__(style=discord.ButtonStyle.success, label="ピックを確定する", disabled=disabled)
@@ -174,7 +37,6 @@ class PickConfirmButton(discord.ui.Button):
         self.view.manager.picks[interaction.user.id] = {"leader": uid, "confirmed": True}
         await interaction.response.edit_message(content="✅ 指導者を確定しました！他のプレイヤーを待っています...", view=None, embed=None)
         await self.view.manager.check_all_completed()
-
 
 class PlayerPickView(discord.ui.View):
     def __init__(self, user_id, manager):
@@ -213,10 +75,6 @@ class PlayerPickView(discord.ui.View):
         self.confirm_btn = PickConfirmButton(disabled=(not self.selected_uid))
         self.add_item(self.confirm_btn)
 
-
-# ==========================================
-# エントリ用UI (公開チャンネル用)
-# ==========================================
 class PickEntryView(discord.ui.View):
     def __init__(self, manager):
         super().__init__(timeout=None)
@@ -274,8 +132,13 @@ class PickEntryView(discord.ui.View):
         text = "**🔴 チームB メンバーの選択状況**\n" + self.format_team_status(self.manager.team_b)
         await interaction.response.send_message(text, ephemeral=True)
 
-
 async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
     """他ファイルから呼び出すためのエントリポイント"""
+    # 循環参照を避けるため、インスタンス化後にメッセージを渡してタイマーを起動
     manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
-    await manager.start()
+    
+    view = PickEntryView(manager)
+    content = f"📢 **指導者ピックフェーズ**\n終了時刻: <t:{manager.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*"
+    
+    entry_message = await interaction.channel.send(content=content, view=view)
+    manager.start_timer(entry_message)
