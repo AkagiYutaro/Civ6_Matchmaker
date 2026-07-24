@@ -129,21 +129,64 @@ class PickPhaseManager:
         pick_a_str = get_pick_str(self.team_a, "チームA")
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
-        # 3. チームPICK (2列で横並び)
         embed.add_field(name="🔵 チームAのPICK", value=pick_a_str, inline=True)
         embed.add_field(name="🔴 チームBのPICK", value=pick_b_str, inline=True)
+        
+        # 見栄えを良くするための空白の区切り線
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        
+        # 💡 追加: 勝敗記録用のボタンViewをセット
+        view = MatchResultView(self, match_id)
         
         # 最初から使いまわしているメインのメッセージ(entry_message)を最終更新する
         if self.entry_message:
             try:
-                await self.entry_message.edit(content="✅ **全プレイヤーのピックが完了しました！**", embed=embed, view=None)
+                await self.entry_message.edit(content="✅ **全プレイヤーのピックが完了しました！**\n続けて勝敗を記録してください。", embed=embed, view=view)
             except Exception as e:
                 logger.error(f"メッセージ更新エラー: {e}")
-                await self.original_interaction.channel.send(content="✅ **全プレイヤーのピックが完了しました！**", embed=embed)
+                await self.original_interaction.channel.send(content="✅ **全プレイヤーのピックが完了しました！**\n続けて勝敗を記録してください。", embed=embed, view=view)
         else:
-            await self.original_interaction.channel.send(content="✅ **全プレイヤーのピックが完了しました！**", embed=embed)
+            await self.original_interaction.channel.send(content="✅ **全プレイヤーのピックが完了しました！**\n続けて勝敗を記録してください。", embed=embed, view=view)
             
         if details_to_record and self.sheet_manager:
             self.original_interaction.client.loop.create_task(
                 asyncio.to_thread(self.sheet_manager.record_match_details, details_to_record)
+            )
+
+# ==========================================
+# 💡 新規追加: 勝敗記録用UI
+# ==========================================
+class MatchResultView(discord.ui.View):
+    def __init__(self, manager, match_id):
+        super().__init__(timeout=None)
+        self.manager = manager
+        self.match_id = match_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        is_admin = interaction.user.guild_permissions.administrator
+        all_players = self.manager.team_a + self.manager.team_b
+        if interaction.user.id not in all_players and not is_admin:
+            await interaction.response.send_message("この対戦の参加者、または管理者のみが勝敗を記録できます。", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="🔵 チームA 勝利", style=discord.ButtonStyle.primary, custom_id="win_team_a")
+    async def btn_win_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_result(interaction, "チームA")
+
+    @discord.ui.button(label="🔴 チームB 勝利", style=discord.ButtonStyle.danger, custom_id="win_team_b")
+    async def btn_win_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_result(interaction, "チームB")
+
+    async def process_result(self, interaction: discord.Interaction, win_team: str):
+        # ボタンを無効化
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        
+        await interaction.followup.send(f"🏆 **{win_team} の勝利** としてスプレッドシートに記録しました！", ephemeral=False)
+        
+        if self.manager.sheet_manager:
+            self.manager.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.manager.sheet_manager.update_match_result, self.match_id, win_team)
             )
