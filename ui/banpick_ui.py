@@ -254,15 +254,15 @@ class GlobalBanView(discord.ui.View):
         self.select_a.callback = self.callback_a
         self.add_item(self.select_a)
         
-        self.btn_a = discord.ui.Button(label="🔵 A確定", style=discord.ButtonStyle.success, disabled=True, row=0)
+        self.btn_a = discord.ui.Button(label="🔵 A確定", style=discord.ButtonStyle.success, disabled=True, row=1)
         self.btn_a.callback = self.confirm_a
         self.add_item(self.btn_a)
         
-        self.select_b = discord.ui.Select(placeholder="🔴 チームB代表: メインBANを選択", min_values=1, max_values=1, options=options, row=1)
+        self.select_b = discord.ui.Select(placeholder="🔴 チームB代表: メインBANを選択", min_values=1, max_values=1, options=options, row=2)
         self.select_b.callback = self.callback_b
         self.add_item(self.select_b)
         
-        self.btn_b = discord.ui.Button(label="🔴 B確定", style=discord.ButtonStyle.success, disabled=True, row=1)
+        self.btn_b = discord.ui.Button(label="🔴 B確定", style=discord.ButtonStyle.success, disabled=True, row=3)
         self.btn_b.callback = self.confirm_b
         self.add_item(self.btn_b)
 
