@@ -134,7 +134,6 @@ class PickEntryView(discord.ui.View):
 
 async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
     """他ファイルから呼び出すためのエントリポイント"""
-    # 循環参照を避けるため、インスタンス化後にメッセージを渡してタイマーを起動
     manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
     
     view = PickEntryView(manager)
