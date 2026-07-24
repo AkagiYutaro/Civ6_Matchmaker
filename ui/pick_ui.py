@@ -15,7 +15,6 @@ class PickSelect(discord.ui.Select):
             self.view.manager.picks[interaction.user.id] = {"leader": uid, "confirmed": False}
             self.view.selected_uid = uid
             
-        # 同じ画面にあるすべてのドロップダウンの表示を同期（チップ化）
         for select in self.view.selects:
             for opt in select.options:
                 opt.default = (opt.value == self.view.selected_uid)
@@ -29,7 +28,6 @@ class PickConfirmButton(discord.ui.Button):
         
     async def callback(self, interaction: discord.Interaction):
         uid = self.view.selected_uid
-        # 直前に他人に確定されていないかチェック
         is_used = any(d["leader"] == uid and d["confirmed"] for user_id, d in self.view.manager.picks.items() if user_id != interaction.user.id)
         if is_used:
             return await interaction.response.send_message("⚠️ その指導者は直前に他のプレイヤーに確定されました。別の指導者を選び直してください。", ephemeral=True)
@@ -45,7 +43,6 @@ class PlayerPickView(discord.ui.View):
         self.selected_uid = manager.picks.get(user_id, {}).get("leader")
         self.selects = []
         
-        # 既に他人が「確定」した指導者はリストから除外する
         confirmed_uids = [d["leader"] for uid, d in manager.picks.items() if d["confirmed"] and uid != user_id]
         available = [L for L in manager.survivors if L['uid'] not in confirmed_uids]
         
@@ -133,11 +130,52 @@ class PickEntryView(discord.ui.View):
         await interaction.response.send_message(text, ephemeral=True)
 
 async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
-    """他ファイルから呼び出すためのエントリポイント"""
+    from logic.banpick_logic import split_and_number_leaders, format_leader_list
+    import random
+    
     manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
-    
     view = PickEntryView(manager)
-    content = f"📢 **指導者ピックフェーズ**\n終了時刻: <t:{manager.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*"
     
-    entry_message = await interaction.channel.send(content=content, view=view)
+    # 💡 修正: 新しいフェーズも進行中の色(Green)で、1つのメッセージを上書きする
+    embed = discord.Embed(
+        title="【フェーズ3: 指導者ピック】",
+        description=f"終了時刻: <t:{manager.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*",
+        color=discord.Color.green()
+    )
+    
+    embed.add_field(name="🌐 確定したメインBAN", value=format_leader_list(banned_global, all_leaders), inline=False)
+    
+    random.shuffle(survivors)
+    list_a, list_b = split_and_number_leaders(survivors, 'final_disp_no')
+    
+    def add_draft_fields(target_embed, leader_list):
+        chunk_size = 20
+        chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
+        total_pages = max(1, len(chunks))
+        for i, chunk in enumerate(chunks, 1):
+            names = []
+            for L in chunk:
+                emoji = L.get('emoji_text', '')
+                name = L['clean_name']
+                disp_no = L.get('final_disp_no', 0)
+                names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+            val = "\n".join(names) if names else "なし"
+            page_title = f"ドラフト - {i}/{total_pages}"
+            target_embed.add_field(name=page_title, value=val, inline=True)
+
+    team_a_players = " ".join([f"<@{uid}>" for uid in team_a]) if team_a else "なし"
+    embed.add_field(name="🔵 チームA プレイヤー", value=team_a_players, inline=False)
+    add_draft_fields(embed, list_a)
+    
+    team_b_players = " ".join([f"<@{uid}>" for uid in team_b]) if team_b else "なし"
+    embed.add_field(name="🔴 チームB プレイヤー", value=team_b_players, inline=False)
+    add_draft_fields(embed, list_b)
+    
+    try:
+        await interaction.edit_original_response(content=None, embed=embed, view=view)
+        entry_message = await interaction.original_response()
+    except Exception:
+        # 万が一15分制限等でエラーになった時の保険
+        entry_message = await interaction.channel.send(embed=embed, view=view)
+        
     manager.start_timer(entry_message)
