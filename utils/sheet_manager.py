@@ -287,6 +287,37 @@ class SheetManager:
             logger.error(f"[ERROR] 対戦詳細ログの記録に失敗しました: {e}")
             return False
 
+    # 💡 追加: 対戦詳細ログに勝敗を記録するメソッド
+    def update_match_result(self, match_id: str, win_team: str) -> bool:
+        """勝敗情報を対戦詳細ログに追記する"""
+        try:
+            ws = self.sheet.worksheet("対戦詳細ログ")
+            records = ws.get_all_records()
+            headers = [str(h).strip() for h in ws.row_values(1)]
+            
+            if "勝敗" not in headers:
+                return False
+                
+            col_idx = headers.index("勝敗") + 1
+            updates = []
+            
+            for row_idx, row in enumerate(records, start=2):
+                if str(row.get("対戦ID", "")) == match_id:
+                    team = str(row.get("所属チーム", ""))
+                    result = "WIN" if team == win_team else "LOSE"
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(row_idx, col_idx),
+                        'values': [[result]]
+                    })
+                    
+            if updates:
+                ws.batch_update(updates)
+                logger.info(f"[SUCCESS] {match_id} の勝敗({win_team})を記録しました。")
+            return True
+        except Exception as e:
+            logger.error(f"[ERROR] 勝敗の記録に失敗しました: {e}")
+            return False
+
     def save_match_results(self, chosen_map: str, map_votes_data: dict, participants: dict, map_emojis: dict, host_id: int) -> bool:
         """UIから受け取ったデータを元に、ログとMAP統計の両方を更新する窓口メソッド"""
         try:
