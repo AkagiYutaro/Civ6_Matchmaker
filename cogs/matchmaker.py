@@ -81,9 +81,23 @@ class MatchmakerCog(commands.Cog):
         if not is_admin and interaction.user.id not in (team_a + team_b):
             return await interaction.response.send_message("対戦の参加者または管理者のみ実行可能です。", ephemeral=True)
 
-        import random
-        MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
-        chosen_map = map_name if map_name else random.choice(MAPS)
+        # 💡 変更: 投票データがあればそこから集計するロジック
+        chosen_map = map_name
+        if not chosen_map:
+            if hasattr(self.bot, 'match_sessions') and bot_msg.id in self.bot.match_sessions:
+                result_view = self.bot.match_sessions[bot_msg.id]
+                from logic.matchmaker_logic import calculate_map_votes
+                from ui.matchmaker_ui import MAP_EMOJIS
+                calc_map, max_votes = calculate_map_votes(result_view.map_votes_data, result_view.participants, MAP_EMOJIS)
+                if max_votes > 0:
+                    chosen_map = calc_map
+                    await interaction.channel.send(f"📊 投票データから **{chosen_map}** が選出されました（{max_votes}票獲得）。")
+                    
+        # 投票データも指定もなく未定の場合はランダム
+        if not chosen_map:
+            import random
+            MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
+            chosen_map = random.choice(MAPS)
         
         from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
