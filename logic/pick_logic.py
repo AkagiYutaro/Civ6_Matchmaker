@@ -1,6 +1,7 @@
 import time
 import asyncio
 import random
+import datetime
 import logging
 import discord
 from logic.banpick_logic import format_leader_list
@@ -32,6 +33,7 @@ class PickPhaseManager:
         self.banned_global = banned_global
         self.banned_a = banned_a
         self.banned_b = banned_b
+        self.sheet_manager = sheet_manager
         
         # {user_id: {"leader": uid, "confirmed": bool}}
         self.picks = {} 
@@ -67,7 +69,6 @@ class PickPhaseManager:
             data = self.picks.get(uid, {"leader": None, "confirmed": False})
             if not data.get("confirmed"):
                 temp = data.get("leader")
-                # 仮選択があれば優先。他人に取られていたらランダム
                 if temp and temp in available:
                     final_uid = temp
                 else:
@@ -87,7 +88,7 @@ class PickPhaseManager:
             await self.finish_pick()
 
     async def finish_pick(self):
-        """全員完了時、または時間切れ時に最終結果を表示する"""
+        """全員完了時、または時間切れ時に最終結果を表示し、ログを記録する"""
         if self.entry_message:
             try:
                 await self.entry_message.edit(content="✅ **全プレイヤーのピックが完了しました！**", view=None)
@@ -95,7 +96,7 @@ class PickPhaseManager:
             
         embed = discord.Embed(title="BAN / PICK 結果", color=discord.Color.gold())
         
-        # 1. メインBAN (旧グローバルBAN)
+        # 1. メインBAN
         global_str = format_leader_list(self.banned_global, self.all_leaders)
         embed.add_field(name="🌐 メインBAN", value=global_str, inline=False)
         
@@ -104,8 +105,12 @@ class PickPhaseManager:
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
         embed.add_field(name="🚫 BAN", value=f"**【🔵 チームAのBAN】**\n{ban_a_str}\n\n**【🔴 チームBのBAN】**\n{ban_b_str}", inline=False)
         
-        # 3. チームPICK
-        def get_pick_str(team_ids):
+        # 3. チームPICK (画面表示の作成と、ログ記録用のデータ準備)
+        match_id = f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        timestamp = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        details_to_record = []
+        
+        def get_pick_str(team_ids, team_name):
             lines = []
             for uid in team_ids:
                 l_id = self.picks.get(uid, {}).get("leader")
@@ -114,13 +119,25 @@ class PickPhaseManager:
                     emoji = leader.get('emoji_text', '')
                     name = leader['clean_name']
                     lines.append(f"<@{uid}> : {emoji} **{name}**")
+                    
+                    # 💡 スプレッドシート記録用データの作成
+                    # IDからサーバー内のメンバーを取得し、表示名(名前)を取得する
+                    member = self.original_interaction.guild.get_member(uid)
+                    player_name = member.display_name if member else f"ID: {uid}"
+                    details_to_record.append([match_id, timestamp, str(uid), player_name, team_name, name, ""])
                 else:
                     lines.append(f"<@{uid}> : ランダム(エラー)")
             return "\n".join(lines) if lines else "なし"
             
-        pick_a_str = get_pick_str(self.team_a)
-        pick_b_str = get_pick_str(self.team_b)
+        pick_a_str = get_pick_str(self.team_a, "チームA")
+        pick_b_str = get_pick_str(self.team_b, "チームB")
         
         embed.add_field(name="✅ PICK", value=f"**【🔵 チームAのPICK】**\n{pick_a_str}\n\n**【🔴 チームBのPICK】**\n{pick_b_str}", inline=False)
         
         await self.original_interaction.channel.send(embed=embed)
+        
+        # 💡 非同期でスプレッドシートに詳細ログを書き込む
+        if details_to_record and self.sheet_manager:
+            self.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.sheet_manager.record_match_details, details_to_record)
+            )
