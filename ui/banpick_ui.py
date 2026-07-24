@@ -11,7 +11,7 @@ from logic.banpick_logic import (
 logger = logging.getLogger('discord.banpick')
 
 class BanPickPhaseManager:
-    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned, sheet_manager):
+    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned, sheet_manager, chosen_map=None, max_vote_val=0):
         self.original_interaction = interaction
         self.host = host
         self.team_a = team_a
@@ -19,6 +19,9 @@ class BanPickPhaseManager:
         self.all_leaders = all_leaders
         self.global_banned = global_banned
         self.sheet_manager = sheet_manager
+        
+        self.chosen_map = chosen_map
+        self.max_vote_val = max_vote_val
         
         self.banned_a = []
         self.banned_b = []
@@ -75,9 +78,10 @@ class BanPickPhaseManager:
             self.global_banned,
             self.banned_a,
             self.banned_b,
-            self.sheet_manager
+            self.sheet_manager,
+            self.chosen_map,
+            self.max_vote_val
         )
-
 
 class ChunkedBanSelect(discord.ui.Select):
     def __init__(self, options, placeholder, max_bans):
@@ -214,7 +218,7 @@ class Phase2EntryView(discord.ui.View):
 
 
 class GlobalBanView(discord.ui.View):
-    def __init__(self, host, team_a, team_b, global_pool, all_leaders, required_bans, sheet_manager):
+    def __init__(self, host, team_a, team_b, global_pool, all_leaders, required_bans, sheet_manager, chosen_map=None, max_vote_val=0):
         super().__init__(timeout=None)
         self.host = host
         self.team_a = team_a
@@ -227,6 +231,9 @@ class GlobalBanView(discord.ui.View):
         self.all_leaders = all_leaders
         self.required_bans = required_bans
         self.sheet_manager = sheet_manager
+        
+        self.chosen_map = chosen_map
+        self.max_vote_val = max_vote_val
         
         self.temp_banned_a = None
         self.temp_banned_b = None
@@ -247,15 +254,15 @@ class GlobalBanView(discord.ui.View):
         self.select_a.callback = self.callback_a
         self.add_item(self.select_a)
         
-        self.btn_a = discord.ui.Button(label="🔵 A確定", style=discord.ButtonStyle.success, disabled=True, row=1)
+        self.btn_a = discord.ui.Button(label="🔵 A確定", style=discord.ButtonStyle.success, disabled=True, row=0)
         self.btn_a.callback = self.confirm_a
         self.add_item(self.btn_a)
         
-        self.select_b = discord.ui.Select(placeholder="🔴 チームB代表: メインBANを選択", min_values=1, max_values=1, options=options, row=2)
+        self.select_b = discord.ui.Select(placeholder="🔴 チームB代表: メインBANを選択", min_values=1, max_values=1, options=options, row=1)
         self.select_b.callback = self.callback_b
         self.add_item(self.select_b)
         
-        self.btn_b = discord.ui.Button(label="🔴 B確定", style=discord.ButtonStyle.success, disabled=True, row=3)
+        self.btn_b = discord.ui.Button(label="🔴 B確定", style=discord.ButtonStyle.success, disabled=True, row=1)
         self.btn_b.callback = self.confirm_b
         self.add_item(self.btn_b)
 
@@ -310,7 +317,7 @@ class GlobalBanView(discord.ui.View):
                 )
             
             available_leaders = [L for L in self.all_leaders if L["uid"] not in banned_global]
-            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager)
+            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager, self.chosen_map, self.max_vote_val)
             
             random.shuffle(available_leaders)
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
@@ -359,12 +366,14 @@ class GlobalBanView(discord.ui.View):
 
 
 class BanPickStartView(discord.ui.View):
-    def __init__(self, host: discord.Member, team_a: list, team_b: list, sheet_manager):
+    def __init__(self, host: discord.Member, team_a: list, team_b: list, sheet_manager, chosen_map=None, max_vote_val=0):
         super().__init__(timeout=None)
         self.host = host
         self.team_a = team_a
         self.team_b = team_b
         self.sheet_manager = sheet_manager
+        self.chosen_map = chosen_map
+        self.max_vote_val = max_vote_val
 
     @discord.ui.button(label="🚀 BAN/PICKを開始する", style=discord.ButtonStyle.danger, custom_id="civ_start_bp")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -399,6 +408,6 @@ class BanPickStartView(discord.ui.View):
             description=f"両チームの代表者(<@{rep_a_id}>, <@{rep_b_id}>)は、以下のメニューから1つずつ除外する文明を選択し、確定ボタンを押してください。\n*(※管理者は代理操作が可能です)*", 
             color=discord.Color.green()
         )
-        bp_view = GlobalBanView(self.host, self.team_a, self.team_b, global_pool, all_leaders, required_bans, self.sheet_manager)
+        bp_view = GlobalBanView(self.host, self.team_a, self.team_b, global_pool, all_leaders, required_bans, self.sheet_manager, self.chosen_map, self.max_vote_val)
         
         await interaction.followup.edit_message(message_id=interaction.message.id, content="⚔️ **BAN/PICKフェーズ進行中**", embed=embed, view=bp_view)

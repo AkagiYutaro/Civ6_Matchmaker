@@ -125,14 +125,13 @@ class PickEntryView(discord.ui.View):
 
     @discord.ui.button(label="🔴 B: 選択状況の確認", style=discord.ButtonStyle.secondary, row=1)
     async def btn_chk_b(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.manager.team_b and interaction.user.id != self.manager.host.id:
+        if interaction.user.id not in self.manager.team_b and not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("チームBのメンバーのみ確認可能です。", ephemeral=True)
-        
         text = "**🔴 チームB メンバーの選択状況**\n" + self.format_team_status(self.manager.team_b)
         await interaction.response.send_message(text, ephemeral=True)
 
-async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
-    manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
+async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map=None, max_vote_val=0):
+    manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map, max_vote_val)
     view = PickEntryView(manager)
     
     # 💡 【フェーズ3】の表記を削除

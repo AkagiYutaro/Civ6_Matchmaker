@@ -166,19 +166,12 @@ class HostControlView(discord.ui.View):
         result_public_view.team_b_ids = team_b
 
         embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
-        embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中... 0人完了）**", inline=False)
+        embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
         embed.add_field(name=f"🔵 チームA (計: {score_a})", value=team_a_str, inline=True)
         embed.add_field(name=f"🔴 チームB (計: {score_b})", value=team_b_str, inline=True)
 
         try:
             await self.public_message.edit(embed=embed, view=result_public_view)
-            # 💡 追加: 後で投票数を更新するためにメッセージの参照を持たせる
-            result_public_view.message = self.public_message
-            
-            # 💡 追加: map_voteコマンドで集計できるようにBOTのメモリに保存
-            if not hasattr(interaction.client, 'match_sessions'):
-                interaction.client.match_sessions = {}
-            interaction.client.match_sessions[self.public_message.id] = result_public_view
         except Exception as e:
             print(f"メッセージの編集に失敗: {e}")
             pass
@@ -278,12 +271,13 @@ class HostMapControlView(discord.ui.View):
         # 4. 💡 全員へのマップ通知と、BAN/PICKへの移行ボタン送信
         participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
         
-        # チームIDリストを引き継いでBanPickStartViewを作成
         bp_view = BanPickStartView(
             host=self.host,
             team_a=self.result_public_view.team_a_ids,
             team_b=self.result_public_view.team_b_ids,
-            sheet_manager=self.sheet_manager
+            sheet_manager=self.sheet_manager,
+            chosen_map=chosen_map,
+            max_vote_val=max_vote_val
         )
         
         await interaction.channel.send(
