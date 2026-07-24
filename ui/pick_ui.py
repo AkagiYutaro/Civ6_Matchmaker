@@ -130,15 +130,15 @@ class PickEntryView(discord.ui.View):
         await interaction.response.send_message(text, ephemeral=True)
 
 async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
-    from logic.banpick_logic import split_and_number_leaders, format_leader_list
+    from logic.banpick_logic import split_and_number_leaders
     import random
     
     manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
     view = PickEntryView(manager)
     
-    # 💡 修正: 新しいフェーズも進行中の色(Green)で、1つのメッセージを上書きする
+    # 💡 【フェーズ3】の表記を削除
     embed = discord.Embed(
-        title="【フェーズ3: 指導者ピック】",
+        title="【指導者ピック】",
         description=f"終了時刻: <t:{manager.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*",
         color=discord.Color.green()
     )

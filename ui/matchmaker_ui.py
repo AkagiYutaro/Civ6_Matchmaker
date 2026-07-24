@@ -1,5 +1,9 @@
 import discord
 import datetime
+
+# 💡 JST（日本時間）の定義を追加
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
 from logic.matchmaker_logic import balance_teams, calculate_map_votes
 from ui.map_voting_ui import MapVotingView
 from ui.banpick_ui import BanPickStartView # 💡 BAN/PICKへの移行用にインポート
@@ -247,9 +251,10 @@ class HostMapControlView(discord.ui.View):
                 if voted in map_votes_count:
                     map_votes_count[voted] += 1
                     
+        # 💡 datetime.now() に JST を指定する
         match_data = {
-            "match_id": f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
-            "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+            "match_id": f"MATCH-{datetime.datetime.now(JST).strftime('%Y%m%d-%H%M%S')}",
+            "timestamp": datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M:%S"),
             "host_id": str(self.host.id),
             "selected_map": chosen_map,
             "participant_count": len(self.result_public_view.participants),
