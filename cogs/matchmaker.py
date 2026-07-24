@@ -1,7 +1,11 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from ui.matchmaker_ui import MatchmakerPublicView, HostControlView
+import re
+import random
+from ui.matchmaker_ui import MatchmakerPublicView, HostControlView, MAP_EMOJIS
+from logic.matchmaker_logic import calculate_map_votes
+from ui.banpick_ui import BanPickStartView
 
 class MatchmakerCog(commands.Cog):
     def __init__(self, bot):
@@ -64,9 +68,8 @@ class MatchmakerCog(commands.Cog):
         
         if not bot_msg:
             return await interaction.response.send_message("直近にチーム分け結果のメッセージが見つかりませんでした。最初からやり直してください。", ephemeral=True)
-            
+          
         # Embedのテキストからメンション部分を抽出し、チームメンバーのIDを復元する
-        import re
         team_a = []
         team_b = []
         for field in bot_msg.embeds[0].fields:
@@ -86,8 +89,6 @@ class MatchmakerCog(commands.Cog):
         if not chosen_map:
             if hasattr(self.bot, 'match_sessions') and bot_msg.id in self.bot.match_sessions:
                 result_view = self.bot.match_sessions[bot_msg.id]
-                from logic.matchmaker_logic import calculate_map_votes
-                from ui.matchmaker_ui import MAP_EMOJIS
                 calc_map, max_votes = calculate_map_votes(result_view.map_votes_data, result_view.participants, MAP_EMOJIS)
                 if max_votes > 0:
                     chosen_map = calc_map
@@ -95,11 +96,9 @@ class MatchmakerCog(commands.Cog):
                     
         # 投票データも指定もなく未定の場合はランダム
         if not chosen_map:
-            import random
             MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
             chosen_map = random.choice(MAPS)
         
-        from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
             host=interaction.user,
             team_a=team_a,
