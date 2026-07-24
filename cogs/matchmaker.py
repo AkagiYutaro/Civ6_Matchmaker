@@ -84,32 +84,65 @@ class MatchmakerCog(commands.Cog):
         if not is_admin and interaction.user.id not in (team_a + team_b):
             return await interaction.response.send_message("対戦の参加者または管理者のみ実行可能です。", ephemeral=True)
 
-        # 💡 変更: 投票データがあればそこから集計するロジック
         chosen_map = map_name
+        max_votes = 0
         if not chosen_map:
             if hasattr(self.bot, 'match_sessions') and bot_msg.id in self.bot.match_sessions:
                 result_view = self.bot.match_sessions[bot_msg.id]
+                from logic.matchmaker_logic import calculate_map_votes
+                from ui.matchmaker_ui import MAP_EMOJIS
                 calc_map, max_votes = calculate_map_votes(result_view.map_votes_data, result_view.participants, MAP_EMOJIS)
                 if max_votes > 0:
                     chosen_map = calc_map
-                    await interaction.channel.send(f"📊 投票データから **{chosen_map}** が選出されました（{max_votes}票獲得）。")
                     
         # 投票データも指定もなく未定の場合はランダム
         if not chosen_map:
+            import random
             MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
             chosen_map = random.choice(MAPS)
         
+        from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
             host=interaction.user,
             team_a=team_a,
             team_b=team_b,
-            sheet_manager=self.bot.sheet_manager
+            sheet_manager=self.bot.sheet_manager,
+            chosen_map=chosen_map,
+            max_vote_val=max_votes
         )
         
         await interaction.response.send_message(
             content=f"🗺️ Map ： **【 {chosen_map} 】**に強制決定しました。\n以下のボタンからBAN/PICKを開始してください。",
             view=bp_view
         )
+        
+        if max_votes > 0:
+            await interaction.followup.send(f"📊 投票データから **{chosen_map}** が選出されました（{max_votes}票獲得）。", ephemeral=True)
+
+    @app_commands.command(name="scrap", description="[管理/ホスト用] 進行中のマッチングやBAN/PICKセッションを破棄して中止します。")
+    async def scrap(self, interaction: discord.Interaction):
+        is_admin = interaction.user.guild_permissions.administrator
+        
+        target_msg = None
+        async for msg in interaction.channel.history(limit=20):
+            if msg.author == self.bot.user and msg.embeds:
+                if any(k in str(msg.embeds[0].title) for k in ["募集", "チーム分け", "BAN", "指導者ピック"]):
+                    target_msg = msg
+                    break
+                    
+        if not target_msg:
+            return await interaction.response.send_message("破棄可能な進行中メッセージが直近に見つかりませんでした。", ephemeral=True)
+            
+        try:
+            embed = discord.Embed(title="🚫 この対戦セッションは破棄されました。", color=discord.Color.dark_grey())
+            await target_msg.edit(content=None, embed=embed, view=None)
+            
+            if hasattr(self.bot, 'match_sessions') and target_msg.id in self.bot.match_sessions:
+                del self.bot.match_sessions[target_msg.id]
+                
+            await interaction.response.send_message("✅ 対戦セッションを破棄・リセットしました。", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"破棄に失敗しました: {e}", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(MatchmakerCog(bot))
