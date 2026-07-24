@@ -1,6 +1,8 @@
 import discord
 import logging
+import random
 from logic.pick_logic import PickPhaseManager
+from logic.banpick_logic import split_and_number_leaders, format_leader_list
 
 logger = logging.getLogger('discord.pick_ui')
 
@@ -130,9 +132,6 @@ class PickEntryView(discord.ui.View):
         await interaction.response.send_message(text, ephemeral=True)
 
 async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
-    from logic.banpick_logic import split_and_number_leaders
-    import random
-    
     manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager)
     view = PickEntryView(manager)
     
