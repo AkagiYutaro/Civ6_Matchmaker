@@ -258,6 +258,35 @@ class SheetManager:
         except Exception as e:
             logger.error(f"[ERROR] MAPシートの統計更新に失敗: {e}")
 
+    # ==========================================
+    # 📊 対戦詳細ログ (PICK統計等) 記録機能
+    # ==========================================
+    def record_match_details(self, details_data: list) -> bool:
+        """
+        対戦詳細ログ（PICK情報など）を書き込む。
+        details_data は以下のような二次元配列を期待
+        [
+            ["MATCH-ID", "2026/07/24 12:00:00", "123456", "UserA", "チームA", "北条時宗", ""], ...
+        ]
+        """
+        try:
+            try:
+                ws = self.sheet.worksheet("対戦詳細ログ")
+            except gspread.exceptions.WorksheetNotFound:
+                # シートが存在しない場合は自動作成してヘッダーを追加
+                ws = self.sheet.add_worksheet(title="対戦詳細ログ", rows="100", cols="7")
+                headers = ["対戦ID", "実行日時", "プレイヤーID", "プレイヤー名", "所属チーム", "PICK指導者", "勝敗"]
+                ws.update("A1", [headers])
+
+            if details_data:
+                # 複数行のデータを一括で追記する（APIコール節約のため append_rows を使用）
+                ws.append_rows(details_data)
+                logger.info(f"[SUCCESS] 対戦詳細ログを {len(details_data)} 件記録しました。")
+            return True
+        except Exception as e:
+            logger.error(f"[ERROR] 対戦詳細ログの記録に失敗しました: {e}")
+            return False
+
     def save_match_results(self, chosen_map: str, map_votes_data: dict, participants: dict, map_emojis: dict, host_id: int) -> bool:
         """UIから受け取ったデータを元に、ログとMAP統計の両方を更新する窓口メソッド"""
         try:
