@@ -44,7 +44,19 @@ class ConfirmVoteButton(discord.ui.Button):
             return await interaction.response.send_message("⚠️ マップが選択されていません。", ephemeral=True)
 
         # 親パネル(TeamResultPublicView)に投票データを保存
-        self.parent_view.public_view.map_votes_data[user_id] = selected_map
+        pub_view = self.parent_view.public_view
+        pub_view.map_votes_data[user_id] = selected_map
+
+        # 💡 追加: 投票人数を計算して公開パネルのEmbedを更新する
+        if hasattr(pub_view, 'message') and pub_view.message:
+            current_votes = len(pub_view.map_votes_data)
+            total_p = len(pub_view.participants)
+            embed = pub_view.message.embeds[0]
+            embed.set_field_at(0, name="【対戦設定】", value=f"🗺️ Map: **未定（メンバー投票中... {current_votes}/{total_p}人 完了）**", inline=False)
+            try:
+                await pub_view.message.edit(embed=embed)
+            except Exception:
+                pass
 
         for item in self.parent_view.children:
             item.disabled = True
