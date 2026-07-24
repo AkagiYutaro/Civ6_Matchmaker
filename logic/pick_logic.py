@@ -24,7 +24,7 @@ def get_pick_timer(sheet_manager):
     return 180
 
 class PickPhaseManager:
-    def __init__(self, interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager):
+    def __init__(self, interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map=None, max_vote_val=0):
         self.original_interaction = interaction
         self.host = host
         self.team_a = team_a
@@ -36,6 +36,9 @@ class PickPhaseManager:
         self.banned_a = banned_a
         self.banned_b = banned_b
         self.sheet_manager = sheet_manager
+        
+        self.chosen_map = chosen_map
+        self.max_vote_val = max_vote_val
         
         self.picks = {} 
         self.is_completed = False
@@ -87,10 +90,12 @@ class PickPhaseManager:
             await self.finish_pick()
 
     async def finish_pick(self):
-        # 💡 修正: 完了時は黄色(Yellow)に変更し、全ての情報を美しく2列に整列させる
         embed = discord.Embed(title="投票結果", color=discord.Color.yellow())
         
-        # 1. メインBAN (横並びなし)
+        if self.chosen_map:
+            map_str = f"**{self.chosen_map}** （{self.max_vote_val}票獲得）" if self.max_vote_val > 0 else f"**{self.chosen_map}**"
+            embed.add_field(name="🗺️ Map", value=map_str, inline=False)
+            
         global_str = format_leader_list(self.banned_global, self.all_leaders)
         embed.add_field(name="🌐 メインBAN", value=global_str, inline=False)
         
@@ -129,13 +134,11 @@ class PickPhaseManager:
         pick_a_str = get_pick_str(self.team_a, "チームA")
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
-        embed.add_field(name="🔵 チームAのPICK", value=pick_a_str, inline=True)
-        embed.add_field(name="🔴 チームBのPICK", value=pick_b_str, inline=True)
+        embed.add_field(name="✅ チームAのPICK", value=pick_a_str, inline=True)
+        embed.add_field(name="✅ チームBのPICK", value=pick_b_str, inline=True)
         
-        # 見栄えを良くするための空白の区切り線
         embed.add_field(name="\u200B", value="\u200B", inline=False)
         
-        # 💡 追加: 勝敗記録用のボタンViewをセット
         view = MatchResultView(self, match_id)
         
         # 最初から使いまわしているメインのメッセージ(entry_message)を最終更新する
@@ -179,12 +182,11 @@ class MatchResultView(discord.ui.View):
         await self.process_result(interaction, "チームB")
 
     async def process_result(self, interaction: discord.Interaction, win_team: str):
-        # ボタンを無効化
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
         
-        await interaction.followup.send(f"🏆 **{win_team} の勝利** としてスプレッドシートに記録しました！", ephemeral=False)
+        await interaction.followup.send(f"🏆 **{win_team} の勝利** としてスプレッドシートに記録しました！", ephemeral=True)
         
         if self.manager.sheet_manager:
             self.manager.original_interaction.client.loop.create_task(
