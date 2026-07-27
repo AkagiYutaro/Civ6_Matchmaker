@@ -114,6 +114,9 @@ class PickPhaseManager:
         
         details_to_record = []
         
+        # 💡 追加: 統計用にPICKされた指導者名を保存するリスト
+        picked_leader_names = []
+        
         def get_pick_str(team_ids, team_name):
             lines = []
             for uid in team_ids:
@@ -127,6 +130,7 @@ class PickPhaseManager:
                     member = self.original_interaction.guild.get_member(uid)
                     player_name = member.display_name if member else f"ID: {uid}"
                     details_to_record.append([match_id, timestamp, str(uid), player_name, team_name, name, ""])
+                    picked_leader_names.append(name) # 追加
                 else:
                     lines.append(f"<@{uid}> : ランダム(エラー)")
             return "\n".join(lines) if lines else "なし"
@@ -155,6 +159,10 @@ class PickPhaseManager:
             self.original_interaction.client.loop.create_task(
                 asyncio.to_thread(self.sheet_manager.record_match_details, details_to_record)
             )
+            # 💡 追加: 指導者シートのPICK回数もカウントアップする
+            self.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.sheet_manager.update_pick_count, picked_leader_names)
+            )
 
 # ==========================================
 # 💡 新規追加: 勝敗記録用UI
@@ -182,13 +190,37 @@ class MatchResultView(discord.ui.View):
         await self.process_result(interaction, "チームB")
 
     async def process_result(self, interaction: discord.Interaction, win_team: str):
+        # ボタンを無効化
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
         
-        await interaction.followup.send(f"🏆 **{win_team} の勝利** としてスプレッドシートに記録しました！", ephemeral=True)
+        await interaction.followup.send(f"🔄 勝敗({win_team})を記録し、レートを計算中です...", ephemeral=True)
         
         if self.manager.sheet_manager:
+            # 勝敗記録タスク
             self.manager.original_interaction.client.loop.create_task(
                 asyncio.to_thread(self.manager.sheet_manager.update_match_result, self.match_id, win_team)
             )
+            
+            # 💡 追加: レートの計算と更新
+            from logic.rate_logic import calculate_new_rates
+            all_ids = self.manager.team_a + self.manager.team_b
+            current_rates = await asyncio.to_thread(self.manager.sheet_manager.get_player_rates, all_ids)
+            
+            rate_results = calculate_new_rates(self.manager.team_a, self.manager.team_b, win_team, current_rates)
+            
+            new_rates_to_save = {uid: data["new"] for uid, data in rate_results.items()}
+            self.manager.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.manager.sheet_manager.update_player_rates, new_rates_to_save)
+            )
+
+            # 💡 追加: 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.gold()
+            embed.add_field(name="🏆 対戦結果", value=f"**{win_team} の勝利！**\nお疲れ様でした。レートが更新されました。", inline=False)
+            
+            from ui.rate_ui import RateCheckView
+            rate_view = RateCheckView(rate_results)
+            
+            await interaction.message.edit(embed=embed, view=rate_view)
