@@ -350,3 +350,84 @@ class SheetManager:
         except Exception as e:
             logger.error(f"[ERROR] スプレッドシートの一括記録に失敗: {e}")
             return False
+
+    # ==========================================
+    # 💡 追加: 指導者のPICK回数をカウントアップ
+    # ==========================================
+    def update_pick_count(self, picked_leader_names: list):
+        if not picked_leader_names: return
+        try:
+            ws = self.sheet.worksheet("指導者")
+            records = ws.get_all_records()
+            headers = [str(h).strip() for h in ws.row_values(1)]
+            
+            if "PICK回数" not in headers:
+                headers.append("PICK回数")
+                ws.update("A1", [headers])
+                
+            pick_col_idx = headers.index("PICK回数") + 1
+            updates = []
+            
+            for row_idx, row in enumerate(records, start=2):
+                leader_name = str(row.get("指導者名", "")).strip()
+                if leader_name in picked_leader_names:
+                    current_val = row.get("PICK回数", 0)
+                    try:
+                        count = int(current_val) if current_val != "" else 0
+                    except ValueError:
+                        count = 0
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(row_idx, pick_col_idx),
+                        'values': [[count + 1]]
+                    })
+            if updates:
+                ws.batch_update(updates)
+        except Exception as e:
+            print(f"[ERROR] PICK回数の更新に失敗: {e}")
+
+    # ==========================================
+    # 💡 追加: プレイヤーレートの取得・更新
+    # ==========================================
+    def get_player_rates(self, discord_ids: list) -> dict:
+        """スプレッドシートのプレイヤーデータから現在のレートを取得（未登録なら1500）"""
+        default_rate = 1500
+        rates = {did: default_rate for did in discord_ids}
+        try:
+            ws = self.sheet.worksheet("プレイヤーデータ")
+            records = ws.get_all_records()
+            for row in records:
+                did_str = str(row.get("Discord_ID", ""))
+                if did_str.isdigit() and int(did_str) in discord_ids:
+                    r = row.get("レート", default_rate)
+                    rates[int(did_str)] = int(r) if str(r).strip().isdigit() else default_rate
+        except Exception as e:
+            print(f"[ERROR] レート取得失敗: {e}")
+        return rates
+
+    def update_player_rates(self, rate_updates: dict) -> bool:
+        """計算された新レートをプレイヤーデータシートに上書き保存"""
+        try:
+            ws = self.sheet.worksheet("プレイヤーデータ")
+            records = ws.get_all_records()
+            headers = [str(h).strip() for h in ws.row_values(1)]
+            
+            if "レート" not in headers:
+                headers.append("レート")
+                ws.update("A1", [headers])
+                
+            rate_col_idx = headers.index("レート") + 1
+            updates = []
+            for row_idx, row in enumerate(records, start=2):
+                did_str = str(row.get("Discord_ID", ""))
+                if did_str.isdigit() and int(did_str) in rate_updates:
+                    new_rate = rate_updates[int(did_str)]
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(row_idx, rate_col_idx),
+                        'values': [[new_rate]]
+                    })
+            if updates:
+                ws.batch_update(updates)
+            return True
+        except Exception as e:
+            print(f"[ERROR] レートの更新に失敗: {e}")
+            return False
