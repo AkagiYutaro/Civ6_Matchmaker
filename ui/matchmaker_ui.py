@@ -156,6 +156,16 @@ class HostControlView(discord.ui.View):
         score_a = sum(players_info[p_id]["score"] for p_id in team_a)
         score_b = sum(players_info[p_id]["score"] for p_id in team_b)
         
+        # 💡 追加: チームのEloレート平均の差分を計算
+        all_ids = team_a + team_b
+        rates = self.sheet_manager.get_player_rates(all_ids)
+        avg_a = sum(rates.get(uid, 1500) for uid in team_a) / max(1, len(team_a)) if team_a else 1500
+        avg_b = sum(rates.get(uid, 1500) for uid in team_b) / max(1, len(team_b)) if team_b else 1500
+        diff_a = round(avg_a - avg_b)
+        diff_b = round(avg_b - avg_a)
+        sign_a = "+" if diff_a > 0 else ""
+        sign_b = "+" if diff_b > 0 else ""
+        
         team_a_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_a]) if team_a else "なし"
         team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]) if team_b else "なし"
 
@@ -167,8 +177,9 @@ class HostControlView(discord.ui.View):
 
         embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
         embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
-        embed.add_field(name=f"🔵 チームA (計: {score_a})", value=team_a_str, inline=True)
-        embed.add_field(name=f"🔴 チームB (計: {score_b})", value=team_b_str, inline=True)
+        # 💡 修正: 計 を レート差 に変更
+        embed.add_field(name=f"🔵 チームA (レート差: {sign_a}{diff_a})", value=team_a_str, inline=True)
+        embed.add_field(name=f"🔴 チームB (レート差: {sign_b}{diff_b})", value=team_b_str, inline=True)
 
         try:
             await self.public_message.edit(embed=embed, view=result_public_view)
@@ -271,12 +282,14 @@ class HostMapControlView(discord.ui.View):
             latest_msg = await interaction.channel.fetch_message(self.public_message.id)
             embed = latest_msg.embeds[0]
             embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
-            await latest_msg.edit(content=f"{participants_mention}\n🗺️ マップが決定しました！ホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
+            # 💡 修正: 文言の変更
+            await latest_msg.edit(content=f"{participants_mention}\nホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
         except Exception:
             embed = self.public_message.embeds[0]
             if len(embed.fields) > 0:
                 embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
-            await self.public_message.edit(content=f"{participants_mention}\n🗺️ マップが決定しました！ホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
+            # 💡 修正: 文言の変更
+            await self.public_message.edit(content=f"{participants_mention}\nホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
 
         # 5. ホストの操作パネルを終了
         await interaction.followup.edit_message(
