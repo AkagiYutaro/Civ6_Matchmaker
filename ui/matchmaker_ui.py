@@ -231,18 +231,6 @@ class HostMapControlView(discord.ui.View):
         
         map_result_str = f"🗺️ Map: **{chosen_map}** （{max_vote_val}票獲得）" if max_vote_val > 0 else f"🗺️ Map: **{chosen_map}**"
         
-        # 2. 公開メッセージの更新 (マップ確定、投票ボタン消去)
-        try:
-            latest_msg = await interaction.channel.fetch_message(self.public_message.id)
-            embed = latest_msg.embeds[0]
-            embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
-            await latest_msg.edit(embed=embed, view=None)
-        except Exception:
-            embed = self.public_message.embeds[0]
-            if len(embed.fields) > 0:
-                embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
-            await self.public_message.edit(embed=embed, view=None)
-
         # 3. スプレッドシートへの対戦ログ記録
         map_votes_count = {name: 0 for name in MAP_EMOJIS.keys()}
         for p_id in self.result_public_view.participants.keys():
@@ -251,7 +239,6 @@ class HostMapControlView(discord.ui.View):
                 if voted in map_votes_count:
                     map_votes_count[voted] += 1
                     
-        # 💡 datetime.now() に JST を指定する
         match_data = {
             "match_id": f"MATCH-{datetime.datetime.now(JST).strftime('%Y%m%d-%H%M%S')}",
             "timestamp": datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M:%S"),
@@ -268,7 +255,7 @@ class HostMapControlView(discord.ui.View):
         except Exception as e:
             print(f"対戦ログの記録に失敗しました: {e}")
 
-        # 4. 💡 全員へのマップ通知と、BAN/PICKへの移行ボタン送信
+        # 4. 💡 既存メッセージを上書きしてBAN/PICKへ移行
         participants_mention = " ".join([f"<@{p_id}>" for p_id in self.result_public_view.participants.keys()])
         
         bp_view = BanPickStartView(
@@ -279,11 +266,17 @@ class HostMapControlView(discord.ui.View):
             chosen_map=chosen_map,
             max_vote_val=max_vote_val
         )
-        
-        await interaction.channel.send(
-            content=f"{participants_mention} \n🗺️ Map ： **【 {chosen_map} 】**に決定\n以下のボタンからBAN/PICKを開始してください。",
-            view=bp_view
-        )
+
+        try:
+            latest_msg = await interaction.channel.fetch_message(self.public_message.id)
+            embed = latest_msg.embeds[0]
+            embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+            await latest_msg.edit(content=f"{participants_mention}\n🗺️ マップが決定しました！ホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
+        except Exception:
+            embed = self.public_message.embeds[0]
+            if len(embed.fields) > 0:
+                embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+            await self.public_message.edit(content=f"{participants_mention}\n🗺️ マップが決定しました！ホストは以下のボタンからBAN/PICKを開始してください。", embed=embed, view=bp_view)
 
         # 5. ホストの操作パネルを終了
         await interaction.followup.edit_message(
