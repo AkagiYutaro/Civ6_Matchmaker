@@ -68,7 +68,7 @@ class MatchmakerCog(commands.Cog):
         
         if not bot_msg:
             return await interaction.response.send_message("直近にチーム分け結果のメッセージが見つかりませんでした。最初からやり直してください。", ephemeral=True)
-          
+            
         # Embedのテキストからメンション部分を抽出し、チームメンバーのIDを復元する
         team_a = []
         team_b = []
@@ -111,10 +111,18 @@ class MatchmakerCog(commands.Cog):
             max_vote_val=max_votes
         )
         
-        await interaction.response.send_message(
-            content=f"🗺️ Map ： **【 {chosen_map} 】**に強制決定しました。\n以下のボタンからBAN/PICKを開始してください。",
+        # 💡 新規メッセージを送るのではなく、見つけ出した大元メッセージ(bot_msg)を上書きする
+        embed = bot_msg.embeds[0]
+        map_result_str = f"🗺️ Map: **{chosen_map}** （{max_votes}票獲得）" if max_votes > 0 else f"🗺️ Map: **{chosen_map}** (強制決定)"
+        embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
+        
+        await bot_msg.edit(
+            content=f"🗺️ マップを強制決定しました。ホストは以下のボタンからBAN/PICKを開始してください。",
+            embed=embed,
             view=bp_view
         )
+        
+        await interaction.response.send_message("✅ 元の募集メッセージを更新し、BAN/PICKフェーズへ強制移行しました。", ephemeral=True)
         
         if max_votes > 0:
             await interaction.followup.send(f"📊 投票データから **{chosen_map}** が選出されました（{max_votes}票獲得）。", ephemeral=True)
