@@ -190,7 +190,6 @@ class MatchResultView(discord.ui.View):
         await self.process_result(interaction, "チームB")
 
     async def process_result(self, interaction: discord.Interaction, win_team: str):
-        # ボタンを無効化
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
@@ -198,12 +197,10 @@ class MatchResultView(discord.ui.View):
         await interaction.followup.send(f"🔄 勝敗({win_team})を記録し、レートを計算中です...", ephemeral=True)
         
         if self.manager.sheet_manager:
-            # 勝敗記録タスク
             self.manager.original_interaction.client.loop.create_task(
                 asyncio.to_thread(self.manager.sheet_manager.update_match_result, self.match_id, win_team)
             )
             
-            # 💡 追加: レートの計算と更新
             from logic.rate_logic import calculate_new_rates
             all_ids = self.manager.team_a + self.manager.team_b
             current_rates = await asyncio.to_thread(self.manager.sheet_manager.get_player_rates, all_ids)
@@ -215,12 +212,14 @@ class MatchResultView(discord.ui.View):
                 asyncio.to_thread(self.manager.sheet_manager.update_player_rates, new_rates_to_save)
             )
 
-            # 💡 追加: 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.gold()
-            embed.add_field(name="🏆 対戦結果", value=f"**{win_team} の勝利！**\nお疲れ様でした。レートが更新されました。", inline=False)
+            
+            # 💡 修正①: スタイリッシュな対戦結果表示に変更
+            embed.add_field(name="🏆 対戦結果", value=f"**{win_team} 　WIN**", inline=False)
             
             from ui.rate_ui import RateCheckView
             rate_view = RateCheckView(rate_results)
             
-            await interaction.message.edit(embed=embed, view=rate_view)
+            # 💡 修正④: content=None を指定して「ピックが完了しました...」のテキストを消去
+            await interaction.message.edit(content=None, embed=embed, view=rate_view)
