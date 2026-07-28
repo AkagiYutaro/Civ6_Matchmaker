@@ -215,11 +215,13 @@ class MatchResultView(discord.ui.View):
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.gold()
             
-            # 💡 修正①: スタイリッシュな対戦結果表示に変更
+            # 💡 追加: 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.gold()
             embed.add_field(name="🏆 対戦結果", value=f"**{win_team} 　WIN**", inline=False)
             
             from ui.rate_ui import RateCheckView
-            rate_view = RateCheckView(rate_results)
+            # 💡 修正: ドラフトデータを渡すために self.manager を引数に追加
+            rate_view = RateCheckView(rate_results, self.manager)
             
-            # 💡 修正④: content=None を指定して「ピックが完了しました...」のテキストを消去
-            await interaction.message.edit(content=None, embed=embed, view=rate_view)
+            await interaction.message.edit(embed=embed, view=rate_view)
