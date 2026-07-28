@@ -33,28 +33,48 @@ class DraftCheckButton(discord.ui.Button):
         list_a = survivors[:half_idx]
         list_b = survivors[half_idx:]
 
-        embed = discord.Embed(title="📜 この試合のドラフト候補一覧", color=discord.Color.blurple())
+        embed = discord.Embed(title="📜 ドラフト一覧", color=discord.Color.blurple())
         
-        def add_team_fields(target_embed, team_label, leader_list):
-            chunk_size = 20
-            chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
-            total_pages = max(1, len(chunks))
-            for i, chunk in enumerate(chunks, 1):
+        chunk_size = 20
+        chunks_a = [list_a[i:i+chunk_size] for i in range(0, len(list_a), chunk_size)]
+        chunks_b = [list_b[i:i+chunk_size] for i in range(0, len(list_b), chunk_size)]
+        
+        max_chunks = max(len(chunks_a), len(chunks_b))
+        
+        # AとBを交互に追加して、必ず2列の左右対称になるよう強制制御する
+        for i in range(max_chunks):
+            # チームAの追加
+            if i < len(chunks_a):
                 names = []
-                for L in chunk:
+                for L in chunks_a[i]:
                     emoji = L.get('emoji_text', '')
                     name = L['clean_name']
-                    # 万が一final_disp_noがない場合のフォールバック
                     disp_no = L.get('final_disp_no', L.get('target_disp_no', 0))
                     names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
-                
                 val = "\n".join(names) if names else "なし"
-                page_title = f"{team_label} - {i}/{total_pages}" if total_pages > 1 else team_label
-                target_embed.add_field(name=page_title, value=val, inline=True)
+                title = f"🔵 チームA ({i+1}/{len(chunks_a)})" if len(chunks_a) > 1 else "🔵 チームA"
+                embed.add_field(name=title, value=val, inline=True)
+            else:
+                embed.add_field(name="\u200B", value="\u200B", inline=True)
 
-        add_team_fields(embed, "🔵 チームA ピック候補", list_a)
-        add_team_fields(embed, "🔴 チームB ピック候補", list_b)
-        
+            # チームBの追加
+            if i < len(chunks_b):
+                names = []
+                for L in chunks_b[i]:
+                    emoji = L.get('emoji_text', '')
+                    name = L['clean_name']
+                    disp_no = L.get('final_disp_no', L.get('target_disp_no', 0))
+                    names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+                val = "\n".join(names) if names else "なし"
+                title = f"🔴 チームB ({i+1}/{len(chunks_b)})" if len(chunks_b) > 1 else "🔴 チームB"
+                embed.add_field(name=title, value=val, inline=True)
+            else:
+                embed.add_field(name="\u200B", value="\u200B", inline=True)
+                
+            # 次のページ(チャンク)を強制的に下の行にするための不可視フィールド
+            if i < max_chunks - 1:
+                embed.add_field(name="\u200B", value="\u200B", inline=False)
+
         # 本人にだけ表示する
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
