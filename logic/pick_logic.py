@@ -99,14 +99,12 @@ class PickPhaseManager:
         global_str = format_leader_list(self.banned_global, self.all_leaders)
         embed.add_field(name="🌐 メインBAN", value=global_str, inline=False)
         
-        # 2. チームBAN (2列で横並び)
+        # 2. チームBAN (大見出しを作成して下に配置)
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="🔵 チームAのBAN", value=ban_a_str, inline=True)
-        embed.add_field(name="🔴 チームBのBAN", value=ban_b_str, inline=True)
-        
-        # 見栄えを良くするための空白の区切り線
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        embed.add_field(name="🚫 BAN", value="\u200B", inline=False)
+        embed.add_field(name="🔵 チームA", value=ban_a_str, inline=True)
+        embed.add_field(name="🔴 チームB", value=ban_b_str, inline=True)
         
         now_jst = datetime.datetime.now(JST)
         match_id = f"MATCH-{now_jst.strftime('%Y%m%d-%H%M%S')}"
@@ -138,10 +136,10 @@ class PickPhaseManager:
         pick_a_str = get_pick_str(self.team_a, "チームA")
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
-        embed.add_field(name="✅ チームAのPICK", value=pick_a_str, inline=True)
-        embed.add_field(name="✅ チームBのPICK", value=pick_b_str, inline=True)
-        
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # 3. チームPICK (大見出しを作成して下に配置)
+        embed.add_field(name="✅ PICK", value="\u200B", inline=False)
+        embed.add_field(name="🔵 チームA", value=pick_a_str, inline=True)
+        embed.add_field(name="🔴 チームB", value=pick_b_str, inline=True)
         
         view = MatchResultView(self, match_id)
         
