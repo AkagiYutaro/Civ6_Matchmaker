@@ -21,6 +21,7 @@ class BanPickPhaseManager:
         self.sheet_manager = sheet_manager
         
         self.chosen_map = chosen_map
+        
         self.max_vote_val = max_vote_val
         
         self.banned_a = []
@@ -33,6 +34,9 @@ class BanPickPhaseManager:
         
         self.msg_a = None
         self.msg_b = None
+        
+        # 💡 追加: リストの顔ぶれが変わるのを防ぐための状態保存
+        self.shuffled_available_leaders = []
 
     async def report_ban_done(self, team_name, banned_list, interaction: discord.Interaction):
         if team_name == "A":
@@ -65,7 +69,10 @@ class BanPickPhaseManager:
             except: pass
 
         final_banned_uids = set(self.global_banned + self.banned_a + self.banned_b)
-        survivors = [L for L in self.all_leaders if L['uid'] not in final_banned_uids]
+        
+        # 💡 修正: シャッフル済みのリストから生存者を抽出するように修正（リストのリセット防止）
+        source_leaders = self.shuffled_available_leaders if self.shuffled_available_leaders else self.all_leaders
+        survivors = [L for L in source_leaders if L['uid'] not in final_banned_uids]
         
         from ui.pick_ui import start_pick_phase
         await start_pick_phase(
@@ -190,8 +197,10 @@ class Phase2EntryView(discord.ui.View):
     async def btn_op_a(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.rep_a and not self.is_admin(interaction):
             return await interaction.response.send_message(f"チームAの代表者(<@{self.rep_a}>)のみ操作可能です。", ephemeral=True)
-        view = TargetBanView(self.required_bans, self.chunks_a, self.manager, "A")
-        await interaction.response.send_message("【🔵 チームA】BANする指導者をリストから選んでください:", view=view, ephemeral=True)
+            
+        # 💡 修正②: 相手(B)のリストを渡し、文言を変更する
+        view = TargetBanView(self.required_bans, self.chunks_b, self.manager, "A")
+        await interaction.response.send_message("【🔵 チームA】相手チーム(B)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔵 A: 選択状況の確認", style=discord.ButtonStyle.secondary, row=0)
     async def btn_chk_a(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -205,8 +214,10 @@ class Phase2EntryView(discord.ui.View):
     async def btn_op_b(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.rep_b and not self.is_admin(interaction):
             return await interaction.response.send_message(f"チームBの代表者(<@{self.rep_b}>)のみ操作可能です。", ephemeral=True)
-        view = TargetBanView(self.required_bans, self.chunks_b, self.manager, "B")
-        await interaction.response.send_message("【🔴 チームB】BANする指導者をリストから選んでください:", view=view, ephemeral=True)
+            
+        # 💡 修正②: 相手(A)のリストを渡し、文言を変更する
+        view = TargetBanView(self.required_bans, self.chunks_a, self.manager, "B")
+        await interaction.response.send_message("【🔴 チームB】相手チーム(A)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔴 B: 選択状況の確認", style=discord.ButtonStyle.secondary, row=1)
     async def btn_chk_b(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -320,9 +331,11 @@ class GlobalBanView(discord.ui.View):
             manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager, self.chosen_map, self.max_vote_val)
             
             random.shuffle(available_leaders)
+            # 💡 追加: 次のフェーズでも順序が維持されるようにマネージャーに保存
+            manager.shuffled_available_leaders = available_leaders
+            
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
 
-            # 💡 【フェーズ2】等の表記を削除
             embed = discord.Embed(
                 title="【チームBAN】", 
                 description="各チーム代表者は「操作する」ボタンからBANを行ってください。\n味方の選択状況は「状況確認」ボタンで確認できます。", 
