@@ -62,9 +62,7 @@ class PickLeaderView(discord.ui.View):
         user_id = interaction.user.id
         selected_uid = active_select.values[0]
         
-        for s in self.selects:
-            if s != active_select:
-                s.values = []
+        # エラー原因だった値のリセット処理を削除
                 
         user_data = self.manager.picks.get(user_id, {})
         if user_data.get("confirmed"):
@@ -177,24 +175,43 @@ async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_lea
     
     list_a, list_b = split_and_number_leaders(survivors, 'final_disp_no')
     
-    def add_team_fields(target_embed, team_label, leader_list):
-        chunk_size = 20
-        chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
-        total_pages = max(1, len(chunks))
-        for i, chunk in enumerate(chunks, 1):
+    # 完全に2列に整列させるためのロジック
+    chunk_size = 20
+    chunks_a = [list_a[i:i+chunk_size] for i in range(0, len(list_a), chunk_size)]
+    chunks_b = [list_b[i:i+chunk_size] for i in range(0, len(list_b), chunk_size)]
+    
+    max_chunks = max(len(chunks_a), len(chunks_b))
+    
+    for i in range(max_chunks):
+        if i < len(chunks_a):
             names = []
-            for L in chunk:
+            for L in chunks_a[i]:
                 emoji = L.get('emoji_text', '')
                 name = L['clean_name']
                 disp_no = L.get('final_disp_no', 0)
                 names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
-            
             val = "\n".join(names) if names else "なし"
-            page_title = f"{team_label} - {i}/{total_pages}" if total_pages > 1 else team_label
-            target_embed.add_field(name=page_title, value=val, inline=True)
+            title = f"🔵 チームA ピック候補 ({i+1}/{len(chunks_a)})" if len(chunks_a) > 1 else "🔵 チームA ピック候補"
+            embed.add_field(name=title, value=val, inline=True)
+        else:
+            embed.add_field(name="\u200B", value="\u200B", inline=True)
 
-    add_team_fields(embed, "🔵 チームA ピック候補", list_a)
-    add_team_fields(embed, "🔴 チームB ピック候補", list_b)
+        if i < len(chunks_b):
+            names = []
+            for L in chunks_b[i]:
+                emoji = L.get('emoji_text', '')
+                name = L['clean_name']
+                disp_no = L.get('final_disp_no', 0)
+                names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+            val = "\n".join(names) if names else "なし"
+            title = f"🔴 チームB ピック候補 ({i+1}/{len(chunks_b)})" if len(chunks_b) > 1 else "🔴 チームB ピック候補"
+            embed.add_field(name=title, value=val, inline=True)
+        else:
+            embed.add_field(name="\u200B", value="\u200B", inline=True)
+            
+        # 次のチャンクを強制改行して並べるための透明フィールド
+        if i < max_chunks - 1:
+            embed.add_field(name="\u200B", value="\u200B", inline=False)
     
     try:
         if interaction.message:
