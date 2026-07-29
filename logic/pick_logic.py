@@ -1,211 +1,224 @@
-import discord
-import logging
+import time
+import asyncio
 import random
-from logic.pick_logic import PickPhaseManager
-from logic.banpick_logic import split_and_number_leaders, format_leader_list
+import datetime
+import logging
+import discord
+from logic.banpick_logic import format_leader_list
 
-logger = logging.getLogger('discord.pick_ui')
+logger = logging.getLogger('discord.pick_logic')
+JST = datetime.timezone(datetime.timedelta(hours=9))
 
-class ChunkedPickSelect(discord.ui.Select):
-    def __init__(self, options, placeholder):
-        super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options)
+def get_pick_timer(sheet_manager):
+    try:
+        master = sheet_manager.get_master_config()
+        for row in master:
+            if str(row.get("FLG名", "")) == "ピック時間" or str(row.get("カテゴリ", "")) == "ピック時間":
+                val = str(row.get("現在の配点", "")).strip()
+                if val.isdigit():
+                    return int(val)
+    except Exception as e:
+        logger.warning(f"ピック時間の取得に失敗しました。デフォルトの180秒を使用します。: {e}")
+    return 180
 
-    async def callback(self, interaction: discord.Interaction):
-        await self.view.handle_select(interaction, self)
+class PickPhaseManager:
+    def __init__(self, interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map=None, max_vote_val=0, match_id=None):
+        self.original_interaction = interaction
+        self.host = host
+        self.team_a = team_a
+        self.team_b = team_b
+        self.survivors = survivors
+        self.all_leaders = all_leaders
+        
+        self.banned_global = banned_global
+        self.banned_a = banned_a
+        self.banned_b = banned_b
+        self.sheet_manager = sheet_manager
+        
+        self.chosen_map = chosen_map
+        self.max_vote_val = max_vote_val
+        self.match_id = match_id or "Match-Unknown"
+        
+        self.picks = {} 
+        self.is_completed = False
+        
+        self.duration = get_pick_timer(sheet_manager)
+        self.end_time = int(time.time()) + self.duration
+        self.timeout_task = None
+        self.entry_message = None
 
-class ConfirmPickButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(style=discord.ButtonStyle.success, label="確定する", custom_id="confirm_pick", disabled=True)
+    def start_timer(self, entry_message):
+        self.entry_message = entry_message
+        self.timeout_task = asyncio.create_task(self.timer_loop())
 
-    async def callback(self, interaction: discord.Interaction):
-        await self.view.handle_confirm(interaction)
+    async def timer_loop(self):
+        while self.end_time > time.time():
+            if self.is_completed:
+                return
+            await asyncio.sleep(1)
+            
+        if not self.is_completed:
+            self.force_confirm_unpicked()
+            await self.finish_pick()
 
-class PickLeaderView(discord.ui.View):
-    def __init__(self, manager, chunks, team_ids, list_name):
+    def force_confirm_unpicked(self):
+        all_players = self.team_a + self.team_b
+        used_uids = [d["leader"] for d in self.picks.values() if d.get("confirmed")]
+        available = [L['uid'] for L in self.survivors if L['uid'] not in used_uids]
+        
+        for uid in all_players:
+            data = self.picks.get(uid, {"leader": None, "confirmed": False})
+            if not data.get("confirmed"):
+                temp = data.get("leader")
+                if temp and temp in available:
+                    final_uid = temp
+                else:
+                    final_uid = random.choice(available) if available else None
+                
+                if final_uid in available:
+                    available.remove(final_uid)
+                self.picks[uid] = {"leader": final_uid, "confirmed": True}
+
+    async def check_all_completed(self):
+        all_players = self.team_a + self.team_b
+        confirmed_count = sum(1 for uid in all_players if self.picks.get(uid, {}).get("confirmed"))
+        if confirmed_count >= len(all_players):
+            self.is_completed = True
+            if self.timeout_task:
+                self.timeout_task.cancel()
+            await self.finish_pick()
+
+    async def finish_pick(self):
+        embed = discord.Embed(title=f"{self.match_id}", color=discord.Color.yellow())
+        
+        # 🗺️ Map表示
+        if self.chosen_map:
+            map_str = f"**{self.chosen_map}** （{self.max_vote_val}票獲得）" if self.max_vote_val > 0 else f"**{self.chosen_map}**"
+            embed.add_field(name="\u200B", value=f"### 🗺️ Map\n{map_str}", inline=False)
+            embed.add_field(name="\u200B", value="\u200B", inline=False)
+            
+        # 1. メインBAN
+        global_str = format_leader_list(self.banned_global, self.all_leaders)
+        embed.add_field(name="\u200B", value=f"### 🌐 メインBAN\n{global_str}", inline=False)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        
+        # 2. チームBAN
+        ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
+        ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
+        embed.add_field(name="\u200B", value=f"### 🚫 BAN\n**🔵 チームA**\n{ban_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"### \u200B\n**🔴 チームB**\n{ban_b_str}", inline=True)
+        
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        
+        now_jst = datetime.datetime.now(JST)
+        timestamp = now_jst.strftime("%Y/%m/%d %H:%M:%S")
+        details_to_record = []
+        
+        picked_leader_names = []
+        
+        def get_pick_str(team_ids, team_name):
+            lines = []
+            for uid in team_ids:
+                l_id = self.picks.get(uid, {}).get("leader")
+                leader = next((l for l in self.all_leaders if l['uid'] == l_id), None)
+                if leader:
+                    emoji = leader.get('emoji_text', '')
+                    name = leader['clean_name']
+                    lines.append(f"<@{uid}> : {emoji} **{name}**")
+                    member = self.original_interaction.guild.get_member(uid)
+                    player_name = member.display_name if member else f"ID: {uid}"
+                    details_to_record.append([self.match_id, timestamp, str(uid), player_name, team_name, name, ""])
+                    picked_leader_names.append(name)
+                else:
+                    lines.append(f"<@{uid}> : ランダム(エラー)")
+            return "\n".join(lines) if lines else "なし"
+            
+        pick_a_str = get_pick_str(self.team_a, "チームA")
+        pick_b_str = get_pick_str(self.team_b, "チームB")
+        
+        # 3. PICK
+        embed.add_field(name="\u200B", value=f"### ✅ PICK\n**🔵 チームA**\n{pick_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"### \u200B\n**🔴 チームB**\n{pick_b_str}", inline=True)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        
+        view = MatchResultView(self, self.match_id)
+        
+        if self.entry_message:
+            try:
+                await self.entry_message.edit(content=None, embed=embed, view=view)
+            except Exception as e:
+                logger.error(f"メッセージ更新エラー: {e}")
+                await self.original_interaction.channel.send(content=None, embed=embed, view=view)
+        else:
+            await self.original_interaction.channel.send(content=None, embed=embed, view=view)
+            
+        if details_to_record and self.sheet_manager:
+            self.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.sheet_manager.record_match_details, details_to_record)
+            )
+            # 指導者シートのPICK回数もカウントアップする
+            self.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.sheet_manager.update_pick_count, picked_leader_names)
+            )
+
+
+# ==========================================
+# 勝敗記録用UI
+# ==========================================
+class MatchResultView(discord.ui.View):
+    def __init__(self, manager, match_id):
         super().__init__(timeout=None)
         self.manager = manager
-        self.team_ids = team_ids
-        self.list_name = list_name
-        self.selects = []
-        
-        for chunk in chunks:
-            if not chunk: continue
-            
-            first_no = chunk[0].get('final_disp_no', 0)
-            last_no = chunk[-1].get('final_disp_no', 0)
-            placeholder = f"[{first_no}〜{last_no}] から選択 ▼"
-            
-            opts = []
-            for L in chunk:
-                label_name = f"{L.get('final_disp_no', 0)}. {L['clean_name']}"
-                opts.append(discord.SelectOption(
-                    label=label_name[:100], 
-                    description=str(L.get("文明名", ""))[:100], 
-                    emoji=L.get('emoji_obj'), 
-                    value=L["uid"]
-                ))
-            
-            sel = ChunkedPickSelect(opts, placeholder)
-            self.selects.append(sel)
-            self.add_item(sel)
-            
-        self.confirm_btn = ConfirmPickButton()
-        self.add_item(self.confirm_btn)
+        self.match_id = match_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id not in self.team_ids:
-            await interaction.response.send_message("このリストからはピックできません（別チーム用です）。", ephemeral=True)
+        is_admin = interaction.user.guild_permissions.administrator
+        all_players = self.manager.team_a + self.manager.team_b
+        if interaction.user.id not in all_players and not is_admin:
+            await interaction.response.send_message("この対戦の参加者、または管理者のみが勝敗を記録できます。", ephemeral=True)
             return False
         return True
 
-    async def handle_select(self, interaction: discord.Interaction, active_select):
-        user_id = interaction.user.id
-        selected_uid = active_select.values[0]
-        
-        for s in self.selects:
-            if s != active_select:
-                s.values = []
-                
-        user_data = self.manager.picks.get(user_id, {})
-        if user_data.get("confirmed"):
-            return await interaction.response.send_message("既に確定済みです。", ephemeral=True)
-            
-        is_used = any(d.get("leader") == selected_uid for uid, d in self.manager.picks.items() if uid != user_id)
-        if is_used:
-            return await interaction.response.send_message("⚠️ その指導者はすでに他の人が選択（または仮選択）しています！", ephemeral=True)
-            
-        self.manager.picks[user_id] = {"leader": selected_uid, "confirmed": False}
-        self.confirm_btn.disabled = False
+    @discord.ui.button(label="🔵 チームA 勝利", style=discord.ButtonStyle.primary, custom_id="win_team_a")
+    async def btn_win_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_result(interaction, "チームA")
+
+    @discord.ui.button(label="🔴 チームB 勝利", style=discord.ButtonStyle.danger, custom_id="win_team_b")
+    async def btn_win_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_result(interaction, "チームB")
+
+    async def process_result(self, interaction: discord.Interaction, win_team: str):
+        # ボタンを無効化
+        for child in self.children:
+            child.disabled = True
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send("✅ 仮選択しました。準備ができたら「確定する」を押してください。\n*(同じチームの人は状況確認ボタンからあなたの仮選択を見ることができます)*", ephemeral=True)
-
-    async def handle_confirm(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        user_data = self.manager.picks.get(user_id, {})
         
-        if not user_data.get("leader"):
-            return await interaction.response.send_message("先に指導者を選択してください。", ephemeral=True)
-            
-        user_data["confirmed"] = True
-        self.manager.picks[user_id] = user_data
+        await interaction.followup.send(f"🔄 勝敗({win_team})を記録し、レートを計算中です...", ephemeral=True)
         
-        for item in self.children:
-            item.disabled = True
-        await interaction.response.edit_message(content="✅ **あなたのピックが確定しました！**\n全員の選択が終わるまでお待ちください。", view=None)
-        
-        await self.manager.check_all_completed()
-
-class PickEntryView(discord.ui.View):
-    def __init__(self, manager):
-        super().__init__(timeout=None)
-        self.manager = manager
-
-    def format_team_status(self, team_ids):
-        lines = []
-        for uid in team_ids:
-            data = self.manager.picks.get(uid, {})
-            status = "✅確定" if data.get("confirmed") else "⏳仮選択中" if data.get("leader") else "未選択"
+        if self.manager.sheet_manager:
+            # 勝敗記録タスク
+            self.manager.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.manager.sheet_manager.update_match_result, self.match_id, win_team)
+            )
             
-            l_id = data.get("leader")
-            leader = next((l for l in self.manager.all_leaders if l['uid'] == l_id), None) if l_id else None
-            l_str = f"({leader['emoji_text']} {leader['clean_name']})" if leader else ""
+            # レートの計算と更新
+            from logic.rate_logic import calculate_new_rates
+            all_ids = self.manager.team_a + self.manager.team_b
+            current_rates = await asyncio.to_thread(self.manager.sheet_manager.get_player_rates, all_ids)
             
-            member = self.manager.original_interaction.guild.get_member(uid)
-            name = member.display_name if member else f"User {uid}"
-            lines.append(f"・{name} : {status} {l_str}")
-        return "\n".join(lines) if lines else "なし"
-
-    @discord.ui.button(label="🔵 A: 指導者をピックする", style=discord.ButtonStyle.primary, row=0)
-    async def btn_pick_a(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.manager.team_a:
-            return await interaction.response.send_message("あなたはチームAではありません。", ephemeral=True)
+            rate_results = calculate_new_rates(self.manager.team_a, self.manager.team_b, win_team, current_rates)
             
-        data = self.manager.picks.get(interaction.user.id, {})
-        if data.get("confirmed"):
-            return await interaction.response.send_message("既に確定済みです！", ephemeral=True)
+            new_rates_to_save = {uid: data["new"] for uid, data in rate_results.items()}
+            self.manager.original_interaction.client.loop.create_task(
+                asyncio.to_thread(self.manager.sheet_manager.update_player_rates, new_rates_to_save)
+            )
+
+            # 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.gold()
+            embed.add_field(name="\u200B", value=f"### 🏆 対戦結果\n**{win_team} WIN**", inline=False)
             
-        survivors = self.manager.survivors
-        half_idx = (len(survivors) + 1) // 2
-        list_a = survivors[:half_idx]
-        chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
-        
-        view = PickLeaderView(self.manager, chunks_a, self.manager.team_a, "A")
-        await interaction.response.send_message("【🔵 チームA】使用する指導者をリストから選んでください:", view=view, ephemeral=True)
-
-    @discord.ui.button(label="🔵 A: 選択状況の確認", style=discord.ButtonStyle.secondary, row=0)
-    async def btn_chk_a(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.manager.team_a and not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("チームAのメンバーのみ確認可能です。", ephemeral=True)
-        text = "**🔵 チームA メンバーの選択状況**\n" + self.format_team_status(self.manager.team_a)
-        await interaction.response.send_message(text, ephemeral=True)
-
-    @discord.ui.button(label="🔴 B: 指導者をピックする", style=discord.ButtonStyle.danger, row=1)
-    async def btn_pick_b(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.manager.team_b:
-            return await interaction.response.send_message("あなたはチームBではありません。", ephemeral=True)
+            from ui.rate_ui import RateCheckView
+            rate_view = RateCheckView(rate_results, self.manager)
             
-        data = self.manager.picks.get(interaction.user.id, {})
-        if data.get("confirmed"):
-            return await interaction.response.send_message("既に確定済みです！", ephemeral=True)
-            
-        survivors = self.manager.survivors
-        half_idx = (len(survivors) + 1) // 2
-        list_b = survivors[half_idx:]
-        chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
-        
-        view = PickLeaderView(self.manager, chunks_b, self.manager.team_b, "B")
-        await interaction.response.send_message("【🔴 チームB】使用する指導者をリストから選んでください:", view=view, ephemeral=True)
-
-    @discord.ui.button(label="🔴 B: 選択状況の確認", style=discord.ButtonStyle.secondary, row=1)
-    async def btn_chk_b(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.manager.team_b and not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("チームBのメンバーのみ確認可能です。", ephemeral=True)
-        text = "**🔴 チームB メンバーの選択状況**\n" + self.format_team_status(self.manager.team_b)
-        await interaction.response.send_message(text, ephemeral=True)
-
-async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map=None, max_vote_val=0, match_id=None):
-    manager = PickPhaseManager(interaction, host, team_a, team_b, survivors, all_leaders, banned_global, banned_a, banned_b, sheet_manager, chosen_map, max_vote_val, match_id)
-    view = PickEntryView(manager)
-    
-    embed = discord.Embed(
-        title="【指導者ピック】",
-        description=f"終了時刻: <t:{manager.end_time}:R>\n各プレイヤーは操作ボタンから使用する指導者を仮選択し、確定してください。\n*(※確定後は変更できません)*",
-        color=discord.Color.green()
-    )
-    
-    embed.add_field(name="🌐 確定したメインBAN", value=format_leader_list(banned_global, all_leaders), inline=False)
-    
-    list_a, list_b = split_and_number_leaders(survivors, 'final_disp_no')
-    
-    def add_team_fields(target_embed, team_label, leader_list):
-        chunk_size = 20
-        chunks = [leader_list[i:i+chunk_size] for i in range(0, len(leader_list), chunk_size)]
-        total_pages = max(1, len(chunks))
-        for i, chunk in enumerate(chunks, 1):
-            names = []
-            for L in chunk:
-                emoji = L.get('emoji_text', '')
-                name = L['clean_name']
-                disp_no = L.get('final_disp_no', 0)
-                names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
-            
-            val = "\n".join(names) if names else "なし"
-            page_title = f"{team_label} - {i}/{total_pages}" if total_pages > 1 else team_label
-            target_embed.add_field(name=page_title, value=val, inline=True)
-
-    add_team_fields(embed, "🔵 チームA ピック候補", list_a)
-    add_team_fields(embed, "🔴 チームB ピック候補", list_b)
-    
-    # 💡 修正: 15分経過対策。インタラクション期限切れの場合は直接メッセージを編集する
-    try:
-        if interaction.message:
-            await interaction.message.edit(content=None, embed=embed, view=view)
-            msg = interaction.message
-        else:
-            await interaction.edit_original_response(content=None, embed=embed, view=view)
-            msg = await interaction.original_response()
-    except Exception as e:
-        logger.warning(f"メッセージの直接編集に失敗したため、新規送信でフォールバックします: {e}")
-        msg = await interaction.channel.send(content=None, embed=embed, view=view)
-        
-    manager.start_timer(msg)
+            await interaction.message.edit(content=None, embed=embed, view=rate_view)
