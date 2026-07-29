@@ -92,19 +92,24 @@ class PickPhaseManager:
     async def finish_pick(self):
         embed = discord.Embed(title="投票結果", color=discord.Color.yellow())
         
+        # 💡 追加: 統合されたマップ情報の表示
         if self.chosen_map:
             map_str = f"**{self.chosen_map}** （{self.max_vote_val}票獲得）" if self.max_vote_val > 0 else f"**{self.chosen_map}**"
-            embed.add_field(name="🗺️ Map", value=map_str, inline=False)
+            embed.add_field(name="### 🗺️ Map", value=map_str, inline=False)
+            embed.add_field(name="\u200B", value="\u200B", inline=False)
             
+        # 1. メインBAN
         global_str = format_leader_list(self.banned_global, self.all_leaders)
-        embed.add_field(name="🌐 メインBAN", value=global_str, inline=False)
+        embed.add_field(name="### 🌐 メインBAN", value=global_str, inline=False)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
         
-        # 2. チームBAN (大見出しを作成して下に配置)
+        # 2. チームBAN (見出しとチーム名の隙間を消すためにvalue内に統合)
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="🚫 BAN", value="\u200B", inline=False)
-        embed.add_field(name="🔵 チームA", value=ban_a_str, inline=True)
-        embed.add_field(name="🔴 チームB", value=ban_b_str, inline=True)
+        embed.add_field(name="### 🚫 BAN", value=f"**🔵 チームA**\n{ban_a_str}", inline=True)
+        embed.add_field(name="### \u200B", value=f"**🔴 チームB**\n{ban_b_str}", inline=True)
+        
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         now_jst = datetime.datetime.now(JST)
         match_id = f"MATCH-{now_jst.strftime('%Y%m%d-%H%M%S')}"
@@ -136,10 +141,10 @@ class PickPhaseManager:
         pick_a_str = get_pick_str(self.team_a, "チームA")
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
-        # 3. チームPICK (大見出しを作成して下に配置)
-        embed.add_field(name="✅ PICK", value="\u200B", inline=False)
-        embed.add_field(name="🔵 チームA", value=pick_a_str, inline=True)
-        embed.add_field(name="🔴 チームB", value=pick_b_str, inline=True)
+        # 3. PICK
+        embed.add_field(name="### ✅ PICK", value=f"**🔵 チームA**\n{pick_a_str}", inline=True)
+        embed.add_field(name="### \u200B", value=f"**🔴 チームB**\n{pick_b_str}", inline=True)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         view = MatchResultView(self, match_id)
         
@@ -210,13 +215,10 @@ class MatchResultView(discord.ui.View):
                 asyncio.to_thread(self.manager.sheet_manager.update_player_rates, new_rates_to_save)
             )
 
-            embed = interaction.message.embeds[0]
-            embed.color = discord.Color.gold()
-            
             # 💡 追加: 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.gold()
-            embed.add_field(name="🏆 対戦結果", value=f"**{win_team} 　WIN**", inline=False)
+            embed.add_field(name="### 🏆 対戦結果", value=f"**{win_team} WIN**", inline=False)
             
             from ui.rate_ui import RateCheckView
             # 💡 修正: ドラフトデータを渡すために self.manager を引数に追加
