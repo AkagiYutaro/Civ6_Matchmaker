@@ -196,7 +196,6 @@ async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_lea
     add_team_fields(embed, "🔵 チームA ピック候補", list_a)
     add_team_fields(embed, "🔴 チームB ピック候補", list_b)
     
-    # 💡 修正: 15分経過対策。インタラクション期限切れの場合は直接メッセージを編集する
     try:
         if interaction.message:
             await interaction.message.edit(content=None, embed=embed, view=view)
