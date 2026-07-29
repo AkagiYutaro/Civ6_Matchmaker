@@ -11,7 +11,7 @@ from logic.banpick_logic import (
 logger = logging.getLogger('discord.banpick')
 
 class BanPickPhaseManager:
-    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned, sheet_manager, chosen_map=None, max_vote_val=0):
+    def __init__(self, interaction, host, team_a, team_b, all_leaders, global_banned, sheet_manager, chosen_map=None, max_vote_val=0, match_id=None):
         self.original_interaction = interaction
         self.host = host
         self.team_a = team_a
@@ -21,8 +21,8 @@ class BanPickPhaseManager:
         self.sheet_manager = sheet_manager
         
         self.chosen_map = chosen_map
-        
         self.max_vote_val = max_vote_val
+        self.match_id = match_id
         
         self.banned_a = []
         self.banned_b = []
@@ -87,7 +87,8 @@ class BanPickPhaseManager:
             self.banned_b,
             self.sheet_manager,
             self.chosen_map,
-            self.max_vote_val
+            self.max_vote_val,
+            self.match_id
         )
 
 class ChunkedBanSelect(discord.ui.Select):
@@ -229,7 +230,7 @@ class Phase2EntryView(discord.ui.View):
 
 
 class GlobalBanView(discord.ui.View):
-    def __init__(self, host, team_a, team_b, global_pool, all_leaders, required_bans, sheet_manager, chosen_map=None, max_vote_val=0):
+    def __init__(self, host, team_a, team_b, global_pool, all_leaders, required_bans, sheet_manager, chosen_map=None, max_vote_val=0, match_id=None):
         super().__init__(timeout=None)
         self.host = host
         self.team_a = team_a
@@ -245,6 +246,7 @@ class GlobalBanView(discord.ui.View):
         
         self.chosen_map = chosen_map
         self.max_vote_val = max_vote_val
+        self.match_id = match_id
         
         self.temp_banned_a = None
         self.temp_banned_b = None
@@ -328,7 +330,7 @@ class GlobalBanView(discord.ui.View):
                 )
             
             available_leaders = [L for L in self.all_leaders if L["uid"] not in banned_global]
-            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager, self.chosen_map, self.max_vote_val)
+            manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager, self.chosen_map, self.max_vote_val, self.match_id)
             
             random.shuffle(available_leaders)
             # 💡 追加: 次のフェーズでも順序が維持されるようにマネージャーに保存
@@ -379,7 +381,7 @@ class GlobalBanView(discord.ui.View):
 
 
 class BanPickStartView(discord.ui.View):
-    def __init__(self, host: discord.Member, team_a: list, team_b: list, sheet_manager, chosen_map=None, max_vote_val=0):
+    def __init__(self, host: discord.Member, team_a: list, team_b: list, sheet_manager, chosen_map=None, max_vote_val=0, match_id=None):
         super().__init__(timeout=None)
         self.host = host
         self.team_a = team_a
@@ -387,6 +389,7 @@ class BanPickStartView(discord.ui.View):
         self.sheet_manager = sheet_manager
         self.chosen_map = chosen_map
         self.max_vote_val = max_vote_val
+        self.match_id = match_id
 
     @discord.ui.button(label="🚀 BAN/PICKを開始する", style=discord.ButtonStyle.danger, custom_id="civ_start_bp")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -421,6 +424,6 @@ class BanPickStartView(discord.ui.View):
             description=f"両チームの代表者(<@{rep_a_id}>, <@{rep_b_id}>)は、以下のメニューから1つずつ除外する文明を選択し、確定ボタンを押してください。\n*(※管理者は代理操作が可能です)*", 
             color=discord.Color.green()
         )
-        bp_view = GlobalBanView(self.host, self.team_a, self.team_b, global_pool, all_leaders, required_bans, self.sheet_manager, self.chosen_map, self.max_vote_val)
+        bp_view = GlobalBanView(self.host, self.team_a, self.team_b, global_pool, all_leaders, required_bans, self.sheet_manager, self.chosen_map, self.max_vote_val, self.match_id)
         
         await interaction.followup.edit_message(message_id=interaction.message.id, content="⚔️ **BAN/PICKフェーズ進行中**", embed=embed, view=bp_view)
