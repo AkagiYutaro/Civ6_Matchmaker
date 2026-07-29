@@ -99,7 +99,9 @@ class MatchmakerCog(commands.Cog):
         if not chosen_map:
             import random
             MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
-            chosen_map = random.choice(MAPS)
+            chosen_map = map_name if map_name else random.choice(MAPS)
+        
+        match_id = self.bot.sheet_manager.get_next_match_id()
         
         from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
@@ -108,10 +110,10 @@ class MatchmakerCog(commands.Cog):
             team_b=team_b,
             sheet_manager=self.bot.sheet_manager,
             chosen_map=chosen_map,
-            max_vote_val=max_votes
+            max_vote_val=max_votes,
+            match_id=match_id
         )
         
-        # 💡 新規メッセージを送るのではなく、見つけ出した大元メッセージ(bot_msg)を上書きする
         embed = bot_msg.embeds[0]
         map_result_str = f"🗺️ Map: **{chosen_map}** （{max_votes}票獲得）" if max_votes > 0 else f"🗺️ Map: **{chosen_map}** (強制決定)"
         embed.set_field_at(0, name="【対戦設定】", value=map_result_str, inline=False)
