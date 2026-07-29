@@ -331,7 +331,7 @@ class SheetManager:
                         
             # スプレッドシート書き込み用のデータ構造を作成
             match_data = {
-                "match_id": f"MATCH-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                "match_id": self.get_next_match_id(),
                 "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
                 "host_id": str(host_id),
                 "selected_map": chosen_map,
@@ -339,7 +339,14 @@ class SheetManager:
                 "total_votes": sum(map_votes_count.values()),
                 "map_votes": map_votes_count
             }
-        pass
+            
+            map_names = list(map_emojis.keys())
+            self.record_match_log(match_data, map_names)
+            self.update_map_stats(chosen_map, map_votes_count)
+            return True
+        except Exception as e:
+            logger.error(f"[ERROR] save_match_results に失敗しました: {e}")
+            return False
         
     def get_next_match_id(self) -> str:
         """対戦ログの行数から次の連番マッチIDを生成する"""
