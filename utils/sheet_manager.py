@@ -339,17 +339,17 @@ class SheetManager:
                 "total_votes": sum(map_votes_count.values()),
                 "map_votes": map_votes_count
             }
-            
-            map_names = list(map_emojis.keys())
-            
-            # 個別のシート更新処理を呼び出す
-            self.record_match_log(match_data, map_names)
-            self.update_map_stats(chosen_map, map_votes_count)
-            logger.info(f"[SUCCESS] 対戦結果のスプレッドシート一括保存が完了しました。")
-            return True
-        except Exception as e:
-            logger.error(f"[ERROR] スプレッドシートの一括記録に失敗: {e}")
-            return False
+        pass
+        
+    def get_next_match_id(self) -> str:
+        """対戦ログの行数から次の連番マッチIDを生成する"""
+        try:
+            ws = self.sheet.worksheet("対戦ログ")
+            records = ws.get_all_values()
+            # 1行目はヘッダー。2行目以降がデータなら、全行数 = 次のマッチ番号
+            return f"Match-{len(records)}"
+        except Exception:
+            return "Match-1"
 
     # ==========================================
     # 💡 追加: 指導者のPICK回数をカウントアップ
