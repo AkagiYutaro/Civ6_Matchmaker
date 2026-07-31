@@ -94,13 +94,13 @@ class PickPhaseManager:
         # 🗺️ Map表示
         if self.chosen_map:
             map_str = f"**{self.chosen_map}** （{self.max_vote_val}票獲得）" if self.max_vote_val > 0 else f"**{self.chosen_map}**"
-            embed.add_field(name="\u200B", value=f"### 🗺️ Map\n{map_str}", inline=False)
-            embed.add_field(name="\u200B", value="\u200B", inline=False)
+            embed.add_field(name="\u200B", value=f"''' 🗺️ Map\n{map_str}'''", inline=False)
+            # embed.add_field(name="\u200B", value="\u200B", inline=False)
             
         # 1. メインBAN
         global_str = format_leader_list(self.banned_global, self.all_leaders)
         embed.add_field(name="\u200B", value=f"### 🌐 メインBAN\n{global_str}", inline=False)
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         # 2. チームBAN
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
@@ -108,7 +108,7 @@ class PickPhaseManager:
         embed.add_field(name="\u200B", value=f"### 🚫 BAN\n**🔵 チームA**\n{ban_a_str}", inline=True)
         embed.add_field(name="\u200B", value=f"### \u200B\n**🔴 チームB**\n{ban_b_str}", inline=True)
         
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         now_jst = datetime.datetime.now(JST)
         timestamp = now_jst.strftime("%Y/%m/%d %H:%M:%S")
