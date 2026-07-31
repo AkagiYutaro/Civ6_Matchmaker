@@ -94,7 +94,7 @@ class PickPhaseManager:
         # 🗺️ Map表示
         if self.chosen_map:
             map_str = f"**{self.chosen_map}** （{self.max_vote_val}票獲得）" if self.max_vote_val > 0 else f"**{self.chosen_map}**"
-            embed.add_field(name="\u200B", value=f"''' 🗺️ Map\n{map_str}'''", inline=False)
+            embed.add_field(name="\u200B", value=f"``` 🗺️ Map\n{map_str}```", inline=False)
             # embed.add_field(name="\u200B", value="\u200B", inline=False)
             
         # 1. メインBAN
