@@ -134,14 +134,53 @@ class SheetManager:
             else:
                 target_civ_no = max([get_civ_no(p) for p in all_players], default=0) + 1
             
-            if active_flgs is not None:
-                flags = [1 if str(m.get("FLG名", "")).strip() in active_flgs else 0 for m in self.get_master_config()]
-            elif skill_data is not None:
-                flags = [skill_data.get(str(m.get("FLG名", "")).strip(), 0) for m in self.get_master_config()]
-            else:
-                flags = [0 for m in self.get_master_config()]
+            master_config = self.get_master_config()
+            headers = [str(h).strip() for h in players_ws.row_values(1)]
+            
+            # 💡 「レート」列が存在しない場合は自動で追加
+            if "レート" not in headers:
+                headers.append("レート")
+                try:
+                    players_ws.update("A1", [headers])
+                except TypeError:
+                    players_ws.update([headers], "A1")
 
-            row_data = [target_civ_no, str_id, player_name, 0, 0, 0, 0] + flags
+            # 💡 スプレッドシートの列（ヘッダー）の並び順に合わせてデータを安全に構築
+            row_data = []
+            for h in headers:
+                if h in ["CivNo", "CivNO"]:
+                    row_data.append(target_civ_no)
+                elif h == "Discord_ID":
+                    row_data.append(str_id)
+                elif h == "プレイヤー名":
+                    row_data.append(player_name)
+                elif h in ["WIN", "LOSE", "WinRate", "総プレイ数"]:
+                    # 既存プレイヤーなら元の戦績を維持、新規なら 0
+                    if row_idx:
+                        row_data.append(all_players[row_idx - 2].get(h, 0))
+                    else:
+                        row_data.append(0)
+                elif h == "レート":
+                    # 既存プレイヤーなら元のレートを維持、新規なら初期値 1500
+                    if row_idx:
+                        val = all_players[row_idx - 2].get("レート", 1500)
+                        row_data.append(1500 if str(val).strip() == "" else val)
+                    else:
+                        row_data.append(1500)
+                else:
+                    is_skill = any(str(m.get("FLG名", "")).strip() == h for m in master_config)
+                    if is_skill:
+                        if active_flgs is not None:
+                            row_data.append(1 if h in active_flgs else 0)
+                        elif skill_data is not None:
+                            row_data.append(skill_data.get(h, 0))
+                        else:
+                            row_data.append(0)
+                    else:
+                        if row_idx:
+                            row_data.append(all_players[row_idx - 2].get(h, ""))
+                        else:
+                            row_data.append("")
             
             if row_idx:
                 range_str = f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(row_data))}"
