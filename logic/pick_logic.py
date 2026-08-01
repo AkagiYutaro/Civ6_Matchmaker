@@ -106,7 +106,7 @@ class PickPhaseManager:
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
         embed.add_field(name="\u200B", value=f"** 🚫 BAN**\n**🔵 チームA**\n{ban_a_str}", inline=True)
-        embed.add_field(name="\u200B", value=f"\u200B\n**🔴 チームB**\n{ban_b_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"\u200B\n**🔴 チームB**\n`{ban_b_str}`", inline=True)
         
         embed.add_field(name="\u200B", value="\u200B", inline=True)
         
