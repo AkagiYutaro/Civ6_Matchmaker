@@ -6,10 +6,30 @@ import random
 from ui.matchmaker_ui import MatchmakerPublicView, HostControlView, MAP_EMOJIS
 from logic.matchmaker_logic import calculate_map_votes
 from ui.banpick_ui import BanPickStartView
+from ui.registration_ui import RegistrationPanelView
 
 class MatchmakerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @app_commands.command(name="civ_setup_register", description="[管理者用] プレイヤーのスキル登録・アンケートパネルをチャンネルに設置します。")
+    @app_commands.default_permissions(administrator=True)
+    async def civ_setup_register(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="📊 Civ6 プレイヤー登録・アンケート",
+            description=(
+                "チーム分けマルチプレイに参加するには、事前のプレイヤー登録が必要です。\n"
+                "下のボタンからアンケートに回答してください。\n\n"
+                "※回答結果に基づいて、チームの合計実力が均等になるよう自動調整されます。\n"
+                "※すでに登録済みの方も、再度回答することで最新の情報に上書きできます。"
+            ),
+            color=discord.Color.green()
+        )
+        
+        view = RegistrationPanelView(self.bot.sheet_manager)
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message("✅ 登録パネルをこのチャンネルに設置しました。", ephemeral=True)
+
 
     @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とチーム分けを開始します。")
     @app_commands.describe(target_role="募集を通知（メンション）するロールを選択（任意）")
@@ -101,13 +121,13 @@ class MatchmakerCog(commands.Cog):
                     
         # 投票データも指定もなく未定の場合はランダム
         if not chosen_map:
-            import random
+            # import random
             MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
             chosen_map = map_name if map_name else random.choice(MAPS)
         
         match_id = self.bot.sheet_manager.get_next_match_id()
         
-        from ui.banpick_ui import BanPickStartView
+        # from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
             host=interaction.user,
             team_a=team_a,
