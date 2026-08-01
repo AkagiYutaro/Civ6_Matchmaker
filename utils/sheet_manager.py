@@ -346,7 +346,7 @@ class SheetManager:
             return True
         except Exception as e:
             logger.error(f"[ERROR] save_match_results に失敗しました: {e}")
-            return False
+        pass
         
     def get_next_match_id(self) -> str:
         """対戦ログの行数から次の連番マッチIDを生成する"""
@@ -354,9 +354,9 @@ class SheetManager:
             ws = self.sheet.worksheet("対戦ログ")
             records = ws.get_all_values()
             # 1行目はヘッダー。2行目以降がデータなら、全行数 = 次のマッチ番号
-            return f"Match-{len(records)}"
+            return f"#{len(records)}"
         except Exception:
-            return "Match-1"
+            return "#1"
 
     # ==========================================
     # 💡 追加: 指導者のPICK回数をカウントアップ
