@@ -100,15 +100,15 @@ class PickPhaseManager:
         # 1. メインBAN
         global_str = format_leader_list(self.banned_global, self.all_leaders)
         embed.add_field(name="\u200B", value=f"** 🌐 メインBAN**\n{global_str}", inline=False)
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         # 2. チームBAN
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="\u200B", value=f"** 🚫 BAN**\n**🔵 チームA**\n{ban_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"** 🚫 BAN**\n**🔵 チームA**\n{ban_a_str}", inline=False)
         embed.add_field(name="\u200B", value=f"\u200B\n**🔴 チームB**\n{ban_b_str}", inline=True)
         
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         now_jst = datetime.datetime.now(JST)
         timestamp = now_jst.strftime("%Y/%m/%d %H:%M:%S")
@@ -137,9 +137,9 @@ class PickPhaseManager:
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
         # 3. PICK
-        embed.add_field(name="\u200B", value=f"** ✅ PICK**\n**🔵 チームA**\n{pick_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"** ✅ PICK**\n**🔵 チームA**\n{pick_a_str}", inline=False)
         embed.add_field(name="\u200B", value=f" \u200B\n**🔴 チームB**\n{pick_b_str}", inline=True)
-        embed.add_field(name="\u200B", value="\u200B", inline=False)
+        # embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         view = MatchResultView(self, self.match_id)
         
@@ -216,7 +216,7 @@ class MatchResultView(discord.ui.View):
             # 元のEmbedに勝敗結果を追記し、レート確認用の専用ボタンUIに差し替える
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.gold()
-            embed.add_field(name="\u200B", value=f"### 🏆 対戦結果\n**{win_team} WIN**", inline=False)
+            embed.add_field(name="\u200B", value=f"** 🏆 対戦結果**\n**{win_team} WIN**", inline=False)
             
             from ui.rate_ui import RateCheckView
             rate_view = RateCheckView(rate_results, self.manager)
