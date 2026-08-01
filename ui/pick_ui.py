@@ -175,43 +175,37 @@ async def start_pick_phase(interaction, host, team_a, team_b, survivors, all_lea
     
     list_a, list_b = split_and_number_leaders(survivors, 'final_disp_no')
     
-    # 完全に2列に整列させるためのロジック
+    # チームごとに横並びにするロジック
     chunk_size = 20
     chunks_a = [list_a[i:i+chunk_size] for i in range(0, len(list_a), chunk_size)]
     chunks_b = [list_b[i:i+chunk_size] for i in range(0, len(list_b), chunk_size)]
     
-    max_chunks = max(len(chunks_a), len(chunks_b))
-    
-    for i in range(max_chunks):
-        if i < len(chunks_a):
-            names = []
-            for L in chunks_a[i]:
-                emoji = L.get('emoji_text', '')
-                name = L['clean_name']
-                disp_no = L.get('final_disp_no', 0)
-                names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
-            val = "\n".join(names) if names else "なし"
-            title = f"🔵 チームA ピック候補 ({i+1}/{len(chunks_a)})" if len(chunks_a) > 1 else "🔵 チームA ピック候補"
-            embed.add_field(name=title, value=val, inline=True)
-        else:
-            embed.add_field(name="\u200B", value="\u200B", inline=True)
+    # 1. チームAを横に並べる
+    for i, chunk in enumerate(chunks_a):
+        names = []
+        for L in chunk:
+            emoji = L.get('emoji_text', '')
+            name = L['clean_name']
+            disp_no = L.get('final_disp_no', 0)
+            names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+        val = "\n".join(names) if names else "なし"
+        title = f"🔵 チームA ピック候補 ({i+1}/{len(chunks_a)})" if len(chunks_a) > 1 else "🔵 チームA ピック候補"
+        embed.add_field(name=title, value=val, inline=True)
+        
+    # 2. チームAとチームBの間に強制改行（見えない行）を入れて段を分ける
+    embed.add_field(name="\u200B", value="\u200B", inline=False)
 
-        if i < len(chunks_b):
-            names = []
-            for L in chunks_b[i]:
-                emoji = L.get('emoji_text', '')
-                name = L['clean_name']
-                disp_no = L.get('final_disp_no', 0)
-                names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
-            val = "\n".join(names) if names else "なし"
-            title = f"🔴 チームB ピック候補 ({i+1}/{len(chunks_b)})" if len(chunks_b) > 1 else "🔴 チームB ピック候補"
-            embed.add_field(name=title, value=val, inline=True)
-        else:
-            embed.add_field(name="\u200B", value="\u200B", inline=True)
-            
-        # 次のチャンクを強制改行して並べるための透明フィールド
-        if i < max_chunks - 1:
-            embed.add_field(name="\u200B", value="\u200B", inline=False)
+    # 3. チームBを横に並べる
+    for i, chunk in enumerate(chunks_b):
+        names = []
+        for L in chunk:
+            emoji = L.get('emoji_text', '')
+            name = L['clean_name']
+            disp_no = L.get('final_disp_no', 0)
+            names.append(f"{disp_no}. {emoji} {name}" if emoji else f"{disp_no}. {name}")
+        val = "\n".join(names) if names else "なし"
+        title = f"🔴 チームB ピック候補 ({i+1}/{len(chunks_b)})" if len(chunks_b) > 1 else "🔴 チームB ピック候補"
+        embed.add_field(name=title, value=val, inline=True)
     
     try:
         if interaction.message:
