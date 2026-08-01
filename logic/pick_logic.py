@@ -105,10 +105,10 @@ class PickPhaseManager:
         # 2. チームBAN
         ban_a_str = format_leader_list(self.banned_a, self.all_leaders)
         ban_b_str = format_leader_list(self.banned_b, self.all_leaders)
-        embed.add_field(name="\u200B", value=f"** 🚫 BAN**\n__🔵 チームA__\n{ban_a_str}", inline=True)
-        embed.add_field(name="\u200B", value=f"\u200B\n__🔴 チームB__\n{ban_b_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"** 🚫 BAN**\n**🔵 チームA**\n{ban_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"\u200B\n**🔴 チームB**\n{ban_b_str}", inline=True)
         
-        # embed.add_field(name="\u200B", value="\u200B", inline=False)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         now_jst = datetime.datetime.now(JST)
         timestamp = now_jst.strftime("%Y/%m/%d %H:%M:%S")
@@ -137,8 +137,8 @@ class PickPhaseManager:
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
         # 3. PICK
-        embed.add_field(name="\u200B", value=f"### ✅ PICK\n**🔵 チームA**\n{pick_a_str}", inline=True)
-        embed.add_field(name="\u200B", value=f"### \u200B\n**🔴 チームB**\n{pick_b_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"** ✅ PICK**\n**🔵 チームA**\n{pick_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f" \u200B\n**🔴 チームB**\n{pick_b_str}", inline=True)
         embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         view = MatchResultView(self, self.match_id)
