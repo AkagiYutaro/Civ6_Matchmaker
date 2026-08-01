@@ -22,8 +22,12 @@ class MatchmakerCog(commands.Cog):
         # 1. 全員に見える公開用募集メッセージ（参加・辞退ボタンのみ）
         desc = f"{mention_str}\n\nホスト <@{host.id}> が募集を開始しました！\n以下のボタンから「参加」または「辞退」を表明してください。" if mention_str else f"ホスト <@{host.id}> が募集を開始しました！\n以下のボタンから「参加」または「辞退」を表明してください。"
         
+        # スプレッドシートから次の対戦IDを取得
+        match_id = self.bot.sheet_manager.get_next_match_id()
+        
+        # 募集用メッセージの作成
         embed = discord.Embed(
-            title="対戦募集",
+            title=f"対戦募集 {match_id}",
             description=desc,
             color=discord.Color.blurple()
         )
