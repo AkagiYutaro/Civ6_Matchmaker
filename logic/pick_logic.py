@@ -137,11 +137,9 @@ class PickPhaseManager:
         pick_b_str = get_pick_str(self.team_b, "チームB")
         
         # 3. PICK
-        embed.add_field(name="\u200B", value=f"** ✅ PICK**", inline=False)
-        embed.add_field(name="\u200B", value=f"** 🔵 チームA**\n{pick_a_str}", inline=True)
-        # embed.add_field(name="\u200B", value=f"** ✅ PICK**\n**🔵 チームA**\n{pick_a_str}", inline=True)
+        embed.add_field(name="\u200B", value=f"** ✅ PICK**\n**🔵 チームA**\n{pick_a_str}", inline=True)
         embed.add_field(name="\u200B", value=f" \u200B\n**🔴 チームB**\n{pick_b_str}", inline=True)
-        # embed.add_field(name="\u200B", value="\u200B", inline=False)
+        embed.add_field(name="\u200B", value="\u200B", inline=False)
         
         view = MatchResultView(self, self.match_id)
         
