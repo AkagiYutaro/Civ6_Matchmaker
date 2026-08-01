@@ -153,22 +153,23 @@ class HostControlView(discord.ui.View):
 
         team_a, team_b = balance_teams(players_info)
         
-        score_a = sum(players_info[p_id]["score"] for p_id in team_a)
-        score_b = sum(players_info[p_id]["score"] for p_id in team_b)
-        
-        team_a_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_a]) if team_a else "なし"
-        team_b_str = "\n".join([f"・<@{p_id}> ({players_info[p_id]['score']})" for p_id in team_b]) if team_b else "なし"
+        # スコア(0)の表記を削除し、純粋なメンションのみにする
+        team_a_str = "\n".join([f"・<@{p_id}>" for p_id in team_a]) if team_a else "なし"
+        team_b_str = "\n".join([f"・<@{p_id}>" for p_id in team_b]) if team_b else "なし"
 
         result_public_view = TeamResultPublicView(participants, self.host)
         
         # 💡 ここでチームメンバー情報をTeamResultPublicViewに保存する
         result_public_view.team_a_ids = team_a
         result_public_view.team_b_ids = team_b
+        
+        # タイトル用に対戦IDを取得
+        match_id = self.sheet_manager.get_next_match_id()
 
-        embed = discord.Embed(title="チーム分け結果", color=discord.Color.gold())
+        embed = discord.Embed(title=f"対戦ID {match_id}", description="**チーム分け結果**", color=discord.Color.gold())
         embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
-        embed.add_field(name=f"🔵 チームA (計: {score_a})", value=team_a_str, inline=True)
-        embed.add_field(name=f"🔴 チームB (計: {score_b})", value=team_b_str, inline=True)
+        embed.add_field(name="🔵 チームA", value=team_a_str, inline=True)
+        embed.add_field(name="🔴 チームB", value=team_b_str, inline=True)
 
         try:
             await self.public_message.edit(embed=embed, view=result_public_view)
