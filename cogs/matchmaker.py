@@ -16,12 +16,10 @@ class MatchmakerCog(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def civ_setup_register(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="📊 Civ6 プレイヤー登録・アンケート",
+            title="📊 プレイヤー登録",
             description=(
-                "チーム分けマルチプレイに参加するには、事前のプレイヤー登録が必要です。\n"
-                "下のボタンからアンケートに回答してください。\n\n"
-                "※回答結果に基づいて、チームの合計実力が均等になるよう自動調整されます。\n"
-                "※すでに登録済みの方も、再度回答することで最新の情報に上書きできます。"
+                "マルチプレイに参加するには、事前のプレイヤー登録が必要です。\n"
+                "下のボタンから登録してください。"
             ),
             color=discord.Color.green()
         )
@@ -71,7 +69,7 @@ class MatchmakerCog(commands.Cog):
             sheet_manager=self.bot.sheet_manager
         )
         await interaction.followup.send(
-            content="【👑 ホスト・管理者専用操作パネル】\n参加者が集まったら、下のボタンからチーム分けを実行してください。\n*(※このメッセージはあなたにしか見えていません)*",
+            content="参加者が集まったら、下のボタンからチーム分けを実行してください。",
             view=control_view,
             ephemeral=True
         )
