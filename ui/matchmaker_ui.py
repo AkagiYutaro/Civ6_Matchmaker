@@ -166,7 +166,7 @@ class HostControlView(discord.ui.View):
         # タイトル用に対戦IDを取得
         match_id = self.sheet_manager.get_next_match_id()
 
-        embed = discord.Embed(title=f"対戦ID {match_id}", description="**チーム分け結果**", color=discord.Color.gold())
+        embed = discord.Embed(title=f"{match_id}", description="**チーム分け結果**", color=discord.Color.gold())
         embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
         embed.add_field(name="🔵 チームA", value=team_a_str, inline=True)
         embed.add_field(name="🔴 チームB", value=team_b_str, inline=True)
