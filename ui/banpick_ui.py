@@ -201,7 +201,7 @@ class Phase2EntryView(discord.ui.View):
             
         # 💡 修正②: 相手(B)のリストを渡し、文言を変更する
         view = TargetBanView(self.required_bans, self.chunks_b, self.manager, "A")
-        await interaction.response.send_message("【🔵 チームA】相手チーム(B)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
+        await interaction.response.send_message("【🔵 チームA】\n 相手チーム(B)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔵 A: 選択状況の確認", style=discord.ButtonStyle.secondary, row=0)
     async def btn_chk_a(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -218,7 +218,7 @@ class Phase2EntryView(discord.ui.View):
             
         # 💡 修正②: 相手(A)のリストを渡し、文言を変更する
         view = TargetBanView(self.required_bans, self.chunks_a, self.manager, "B")
-        await interaction.response.send_message("【🔴 チームB】相手チーム(A)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
+        await interaction.response.send_message("【🔴 チームB】\n 相手チーム(A)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔴 B: 選択状況の確認", style=discord.ButtonStyle.secondary, row=1)
     async def btn_chk_b(self, interaction: discord.Interaction, button: discord.ui.Button):

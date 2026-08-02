@@ -128,7 +128,7 @@ class PickEntryView(discord.ui.View):
         chunks_a = [list_a[i:i + 25] for i in range(0, len(list_a), 25)]
         
         view = PickLeaderView(self.manager, chunks_a, self.manager.team_a, "A")
-        await interaction.response.send_message("【🔵 チームA】使用する指導者をリストから選んでください:", view=view, ephemeral=True)
+        await interaction.response.send_message("【🔵 チームA】\n 使用する指導者をリストから選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔵 A: 選択状況の確認", style=discord.ButtonStyle.secondary, row=0)
     async def btn_chk_a(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -152,7 +152,7 @@ class PickEntryView(discord.ui.View):
         chunks_b = [list_b[i:i + 25] for i in range(0, len(list_b), 25)]
         
         view = PickLeaderView(self.manager, chunks_b, self.manager.team_b, "B")
-        await interaction.response.send_message("【🔴 チームB】使用する指導者をリストから選んでください:", view=view, ephemeral=True)
+        await interaction.response.send_message("【🔴 チームB】\n 使用する指導者をリストから選んでください:", view=view, ephemeral=True)
 
     @discord.ui.button(label="🔴 B: 選択状況の確認", style=discord.ButtonStyle.secondary, row=1)
     async def btn_chk_b(self, interaction: discord.Interaction, button: discord.ui.Button):
