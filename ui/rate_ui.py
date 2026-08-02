@@ -2,7 +2,7 @@ import discord
 
 class RateCheckButton(discord.ui.Button):
     def __init__(self, rate_results: dict):
-        super().__init__(style=discord.ButtonStyle.secondary, label="📊 自分のレート変動を確認", custom_id="check_rate")
+        super().__init__(style=discord.ButtonStyle.secondary, label="📊 レート確認", custom_id="check_rate")
         self.rate_results = rate_results
 
     async def callback(self, interaction: discord.Interaction):
@@ -24,7 +24,7 @@ class RateCheckButton(discord.ui.Button):
 
 class DraftCheckButton(discord.ui.Button):
     def __init__(self, manager):
-        super().__init__(style=discord.ButtonStyle.primary, label="📜 配布ドラフトを確認", custom_id="check_draft")
+        super().__init__(style=discord.ButtonStyle.primary, label="📜 配布ドラフト", custom_id="check_draft")
         self.manager = manager
 
     async def callback(self, interaction: discord.Interaction):
