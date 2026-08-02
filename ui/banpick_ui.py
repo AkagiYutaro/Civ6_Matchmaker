@@ -339,7 +339,7 @@ class GlobalBanView(discord.ui.View):
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
 
             embed = discord.Embed(
-                title=f"対戦ID {self.match_id} \n【チームBAN】", 
+                title=f"{self.match_id} \n【チームBAN】", 
                 description="各チーム代表者は「操作する」ボタンからBANを行ってください。\n味方の選択状況は「状況確認」ボタンで確認できます。", 
                 color=discord.Color.green()
             )
@@ -420,7 +420,7 @@ class BanPickStartView(discord.ui.View):
         rep_b_id = self.team_b[0] if self.team_b else self.host.id
         
         embed = discord.Embed(
-            title=f"対戦ID {self.match_id} \n【🌐 メインBAN】", 
+            title=f"{self.match_id} \n【🌐 メインBAN】", 
             description=f"両チームの代表者(<@{rep_a_id}>, <@{rep_b_id}>)は、以下のメニューから1つずつ除外する文明を選択し、確定ボタンを押してください。\n*(※管理者は代理操作が可能です)*", 
             color=discord.Color.green()
         )
