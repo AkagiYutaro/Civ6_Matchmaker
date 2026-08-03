@@ -7,7 +7,8 @@ import datetime
 logger = logging.getLogger('discord.sheet_manager')
 
 class SheetManager:
-    STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "WIN", "LOSE", "WinRate", "総プレイ数"]
+    # 💡 プレイヤーデータシートから戦績が消えるため、固定ヘッダーからも削除
+    STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "レート"]
 
     def __init__(self, spreadsheet_key: str, creds_file: str):
         self.scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -62,7 +63,6 @@ class SheetManager:
             logger.warning(f"[WARNING] 指導者シートの取得に失敗しました: {e}")
             return []
 
-    # 💡 新機能: タイトル(カテゴリ)ごとにマスタデータをグループ化して取得
     def get_master_categories(self) -> dict:
         try:
             ws = self.sheet.worksheet("マスタ設定")
@@ -73,7 +73,6 @@ class SheetManager:
                 condition = str(r.get("条件", "")).strip()
                 civ_no = str(r.get("CivNO", "")).strip()
                 
-                # タイトルと条件がない行はスキップ
                 if not title or not condition: 
                     continue
                 
@@ -91,7 +90,6 @@ class SheetManager:
             logger.error(f"[ERROR] マスタ設定カテゴリの取得に失敗: {e}")
             return {}
 
-    # 互換性維持用のヘルパー
     def get_master_config(self) -> list:
         try:
             ws = self.sheet.worksheet("マスタ設定")
@@ -100,7 +98,6 @@ class SheetManager:
             return []
 
     def get_player_scores(self, discord_ids: list) -> dict:
-        """現状はスコアではなく「レート」を使用してチーム分けを行う"""
         try:
             players_ws = self.sheet.worksheet("プレイヤーデータ")
             all_players = players_ws.get_all_records()
@@ -109,7 +106,6 @@ class SheetManager:
                 str_id = str(p_id)
                 player_row = next((p for p in all_players if str(p.get("Discord_ID")) == str_id), None)
                 if player_row:
-                    # 💡 レートの数値を実力スコアとして利用する
                     rate_val = player_row.get("レート", 1500)
                     score = int(rate_val) if str(rate_val).isdigit() else 1500
                     player_scores[p_id] = {"name": player_row.get("プレイヤー名", f"ID: {str_id}"), "score": score}
@@ -140,11 +136,9 @@ class SheetManager:
             else:
                 target_civ_no = max([get_civ_no(p) for p in all_players], default=0) + 1
             
-            # 💡 マスタから情報を取得
             ws_master = self.sheet.worksheet("マスタ設定")
             master_records = ws_master.get_all_records()
             
-            # CivNOをキーにしたマスタ辞書と、タイトルの一覧を作成
             master_dict = {}
             master_titles = []
             for m in master_records:
@@ -159,10 +153,8 @@ class SheetManager:
                 if title and title not in master_titles:
                     master_titles.append(title)
                     
-            # 💡 初期レートの計算 (選択されたCivNOの配点合計)
             calculated_rate = sum(master_dict[c_no]["配点"] for c_no in active_flgs if c_no in master_dict) if active_flgs else 1500
 
-            # プレイヤーが選んだ条件をタイトルごとにまとめる
             player_choices = {}
             if active_flgs:
                 for c_no in active_flgs:
@@ -173,7 +165,6 @@ class SheetManager:
 
             headers = [str(h).strip() for h in players_ws.row_values(1)]
             
-            # レート列やアンケートのタイトル列がない場合は自動追加
             needs_update_header = False
             if "レート" not in headers:
                 headers.append("レート")
@@ -198,16 +189,9 @@ class SheetManager:
                     row_data.append(str_id)
                 elif h == "プレイヤー名":
                     row_data.append(player_name)
-                elif h in ["WIN", "LOSE", "WinRate", "総プレイ数"]:
-                    if row_idx:
-                        row_data.append(all_players[row_idx - 2].get(h, 0))
-                    else:
-                        row_data.append(0)
                 elif h == "レート":
-                    # スキル登録時は計算されたレートで上書きする
                     row_data.append(calculated_rate)
                 elif h in master_titles:
-                    # 💡 FLGの1/0ではなく、選んだ条件の文字列そのものをシートに記録する
                     row_data.append(player_choices.get(h, ""))
                 else:
                     if row_idx:
