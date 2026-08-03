@@ -16,13 +16,13 @@ class CategorySelect(discord.ui.Select):
             opts.append(discord.SelectOption(
                 label=d["条件"][:100],
                 description=desc if desc else None,
-                value=str(d.get("CivNO", d["条件"])) # 💡 FLG名の代わりにCivNOを識別子として使う
+                value=str(d.get("CivNO", d["条件"])) 
             ))
             
         super().__init__(
             placeholder=f"▼ {title}"[:150],
             min_values=1,
-            max_values=1, # 💡 ここを1に制限することで、カテゴリ内で複数選べないようにします
+            max_values=1, 
             options=opts,
             custom_id=f"civ_reg_select_{title[:50]}"
         )
@@ -43,11 +43,9 @@ class ConfirmRegistrationButton(discord.ui.Button):
         user_id = interaction.user.id
         player_name = interaction.user.display_name
         
-        # すべてのカテゴリから選択されたCivNOを1つのリストにまとめる
         active_flgs = list(view.selections.values())
         
         try:
-            # スプレッドシートにデータを保存・更新 (レートもここで自動計算される)
             success = view.sheet_manager.register_or_update_player(
                 discord_id=user_id,
                 player_name=player_name,
@@ -60,26 +58,27 @@ class ConfirmRegistrationButton(discord.ui.Button):
                 for title, civ_no in view.selections.items():
                     for opt in view.categories[title]:
                         if str(opt.get("CivNO", opt["条件"])) == str(civ_no):
-                            selected_labels.append(opt["条件"])
+                            selected_labels.append(f"{title} : {opt['条件']}")
                             break
                             
                 items_str = '\n・'.join(selected_labels) if selected_labels else 'なし'
-                msg = f"🎉 **登録・更新が完了しました！**\n\n**【登録内容】**\n・{items_str}"
-                await interaction.followup.send(msg, ephemeral=True)
+                msg = f"🎉 **プレイヤー登録が完了しました！**\n\n**【登録内容】**\n・{items_str}\n\n※以降、内容の変更が必要な場合は管理者へお問い合わせください。"
+                
+                # 💡 要件③: 登録完了後はフォームを消す (view=None)
+                await interaction.edit_original_response(content=msg, view=None)
             else:
-                await interaction.followup.send("❌ 登録に失敗しました。スプレッドシートへの接続を確認してください。", ephemeral=True)
+                await interaction.edit_original_response(content="❌ 登録に失敗しました。スプレッドシートへの接続を確認してください。", view=None)
         except Exception as e:
             logger.error(f"登録エラー: {e}")
-            await interaction.followup.send(f"❌ 予期せぬエラーが発生しました: {e}", ephemeral=True)
+            await interaction.edit_original_response(content=f"❌ 予期せぬエラーが発生しました: {e}", view=None)
 
 class RegistrationFormView(discord.ui.View):
     def __init__(self, sheet_manager, categories):
         super().__init__(timeout=900)
         self.sheet_manager = sheet_manager
         self.categories = categories
-        self.selections = {} # どのカテゴリで何を選んだかを保持
+        self.selections = {} 
         
-        # 💡 カテゴリごとに1つずつドロップダウンメニューを追加 (最大5個まで)
         for title, options in categories.items():
             self.add_item(CategorySelect(title, options))
             
@@ -87,18 +86,24 @@ class RegistrationFormView(discord.ui.View):
         self.add_item(self.confirm_btn)
 
     async def update_status(self, interaction: discord.Interaction):
-        # 💡 要件③: 現在の入力状況をメッセージで案内する
         status_lines = []
         all_selected = True
         
         for title in self.categories.keys():
             if title in self.selections:
-                status_lines.append(f"✅ **{title}** : 選択済み")
+                civ_no = self.selections[title]
+                selected_label = "選択済み"
+                # CivNOから選択したラベル名(条件)を検索して取得
+                for opt in self.categories[title]:
+                    if str(opt.get("CivNO", opt["条件"])) == str(civ_no):
+                        selected_label = opt["条件"]
+                        break
+                # 💡 要件②: 選択状況を「タイトル : 選択内容」の形式で表示
+                status_lines.append(f"✅ **{title}** : {selected_label}")
             else:
                 status_lines.append(f"⬜ **{title}** : 未選択")
                 all_selected = False
                 
-        # すべて回答されたら登録ボタンを有効化
         self.confirm_btn.disabled = not all_selected
         
         status_text = "> **【現在の回答状況】**\n> " + "\n> ".join(status_lines)
@@ -115,15 +120,21 @@ class RegistrationFormView(discord.ui.View):
 # ==========================================
 class RegistrationPanelView(discord.ui.View):
     def __init__(self, sheet_manager):
-        super().__init__(timeout=None) # 常設するためタイムアウトなし
+        super().__init__(timeout=None)
         self.sheet_manager = sheet_manager
 
-    # 💡 要件①: ボタン名を変更
     @discord.ui.button(label="📝 プレイヤー登録", style=discord.ButtonStyle.primary, custom_id="civ_start_registration")
     async def start_registration(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         try:
-            # スプレッドシートからカテゴリ(タイトル)ごとにまとめたマスタデータを取得
+            # 💡 要件①: すでにスプレッドシートに登録済みか確認
+            scores = self.sheet_manager.get_player_scores([interaction.user.id])
+            if scores.get(interaction.user.id) is not None:
+                return await interaction.followup.send(
+                    "❌ **すでに登録済みです。**\n登録内容の修正・変更が必要な場合は、管理者へお問い合わせください。", 
+                    ephemeral=True
+                )
+
             categories = self.sheet_manager.get_master_categories()
             
             if not categories:
@@ -131,7 +142,6 @@ class RegistrationPanelView(discord.ui.View):
                 
             form_view = RegistrationFormView(self.sheet_manager, categories)
             
-            # 初期状態の案内テキストを作成
             status_lines = [f"⬜ **{title}** : 未選択" for title in categories.keys()]
             initial_text = "> **【現在の回答状況】**\n> " + "\n> ".join(status_lines) + "\n\n⚠️ **すべてのメニューから当てはまる項目を選んでください。**"
             
