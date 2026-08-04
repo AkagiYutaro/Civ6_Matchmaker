@@ -33,10 +33,10 @@ class MatchmakerCog(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def civ_setup_status(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="📊 プレイヤーステータス確認",
+            title="📊 戦績確認",
             description=(
-                "自分のこれまでの戦績、よく使う指導者、よく一緒に遊ぶプレイヤーなどのデータを閲覧できます。\n\n"
-                "下のボタンを押すと、**あなたにだけ見える形**でステータスが表示されます。"
+                "自分のこれまでの戦績などのデータを閲覧できます。\n\n"
+                "下のボタンを押すと**戦績**が表示されます。"
             ),
             color=discord.Color.gold()
         )
