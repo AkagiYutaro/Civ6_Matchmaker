@@ -7,6 +7,7 @@ import datetime
 logger = logging.getLogger('discord.sheet_manager')
 
 class SheetManager:
+    # プレイヤーデータシートの基本ヘッダー
     STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "レート"]
 
     def __init__(self, spreadsheet_key: str, creds_file: str):
@@ -338,6 +339,15 @@ class SheetManager:
             logger.error(f"[ERROR] 勝敗の記録に失敗しました: {e}")
             return False
 
+    def get_next_match_id(self) -> str:
+        """対戦ログシートから次の対戦ID（#〇〇）を自動採番する"""
+        try:
+            ws = self.sheet.worksheet("対戦ログ")
+            records = ws.get_all_values()
+            return f"#{len(records)}"
+        except Exception:
+            return "#1"
+
     def update_pick_count(self, picked_leader_names: list):
         if not picked_leader_names: return
         try:
@@ -406,7 +416,6 @@ class SheetManager:
             print(f"[ERROR] レートの更新に失敗: {e}")
             return False
 
-    # 💡 追加: 集計シートから個人のステータスを引っ張ってくる専用メソッド
     def get_player_summary_stats(self, discord_id: int) -> dict:
         try:
             ws = self.sheet.worksheet("集計")
