@@ -7,6 +7,7 @@ from ui.matchmaker_ui import MatchmakerPublicView, HostControlView, MAP_EMOJIS
 from logic.matchmaker_logic import calculate_map_votes
 from ui.banpick_ui import BanPickStartView
 from ui.registration_ui import RegistrationPanelView
+from ui.status_ui import PlayerStatusPanelView
 
 class MatchmakerCog(commands.Cog):
     def __init__(self, bot):
@@ -28,6 +29,22 @@ class MatchmakerCog(commands.Cog):
         await interaction.channel.send(embed=embed, view=view)
         await interaction.response.send_message("✅ 登録パネルをこのチャンネルに設置しました。", ephemeral=True)
 
+    @app_commands.command(name="civ_setup_status", description="[管理者用] プレイヤーステータス確認パネルをチャンネルに設置します。")
+    @app_commands.default_permissions(administrator=True)
+    async def civ_setup_status(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="📊 プレイヤーステータス確認",
+            description=(
+                "自分のこれまでの戦績、よく使う指導者、よく一緒に遊ぶプレイヤーなどのデータを閲覧できます。\n\n"
+                "下のボタンを押すと、**あなたにだけ見える形**でステータスが表示されます。"
+            ),
+            color=discord.Color.gold()
+        )
+        
+        view = PlayerStatusPanelView(self.bot.sheet_manager)
+        
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message("✅ ステータス確認パネルをこのチャンネルに設置しました。", ephemeral=True)
 
     @app_commands.command(name="civ_match", description="Civ6マルチプレイの参加登録とチーム分けを開始します。")
     @app_commands.describe(target_role="募集を通知（メンション）するロールを選択（任意）")
