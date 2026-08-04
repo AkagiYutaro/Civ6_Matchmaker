@@ -7,7 +7,6 @@ import datetime
 logger = logging.getLogger('discord.sheet_manager')
 
 class SheetManager:
-    # 💡 プレイヤーデータシートから戦績が消えるため、固定ヘッダーからも削除
     STATIC_HEADERS = ["CivNo", "Discord_ID", "プレイヤー名", "レート"]
 
     def __init__(self, spreadsheet_key: str, creds_file: str):
@@ -339,39 +338,6 @@ class SheetManager:
             logger.error(f"[ERROR] 勝敗の記録に失敗しました: {e}")
             return False
 
-    def save_match_results(self, chosen_map: str, map_votes_data: dict, participants: dict, map_emojis: dict, host_id: int) -> bool:
-        try:
-            map_votes_count = {name: 0 for name in map_emojis.keys()}
-            for p_id in participants.keys():
-                if p_id in map_votes_data:
-                    voted = map_votes_data[p_id]
-                    if voted in map_votes_count:
-                        map_votes_count[voted] += 1
-            match_data = {
-                "match_id": self.get_next_match_id(),
-                "timestamp": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
-                "host_id": str(host_id),
-                "selected_map": chosen_map,
-                "participant_count": len(participants),
-                "total_votes": sum(map_votes_count.values()),
-                "map_votes": map_votes_count
-            }
-            map_names = list(map_emojis.keys())
-            self.record_match_log(match_data, map_names)
-            self.update_map_stats(chosen_map, map_votes_count)
-            return True
-        except Exception as e:
-            logger.error(f"[ERROR] save_match_results に失敗しました: {e}")
-        pass
-        
-    def get_next_match_id(self) -> str:
-        try:
-            ws = self.sheet.worksheet("対戦ログ")
-            records = ws.get_all_values()
-            return f"#{len(records)}"
-        except Exception:
-            return "#1"
-
     def update_pick_count(self, picked_leader_names: list):
         if not picked_leader_names: return
         try:
@@ -439,3 +405,17 @@ class SheetManager:
         except Exception as e:
             print(f"[ERROR] レートの更新に失敗: {e}")
             return False
+
+    # 💡 追加: 集計シートから個人のステータスを引っ張ってくる専用メソッド
+    def get_player_summary_stats(self, discord_id: int) -> dict:
+        try:
+            ws = self.sheet.worksheet("集計")
+            records = ws.get_all_records()
+            str_id = str(discord_id)
+            for row in records:
+                if str(row.get("プレイヤーID", "")) == str_id:
+                    return row
+            return None
+        except Exception as e:
+            logger.error(f"[ERROR] 集計シートのステータス取得に失敗: {e}")
+            return None
