@@ -5,7 +5,7 @@ logger = logging.getLogger('discord.status_ui')
 
 class StatusCheckButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(style=discord.ButtonStyle.primary, label="📊 自分のステータスを見る", custom_id="civ_check_status_btn")
+        super().__init__(style=discord.ButtonStyle.primary, label="📊 戦績", custom_id="civ_check_status_btn")
 
     async def callback(self, interaction: discord.Interaction):
         # 💡 自分にしか見えない(Ephemeral)状態で処理を開始
@@ -22,7 +22,7 @@ class StatusCheckButton(discord.ui.Button):
             
         # ステータス表示用のリッチなEmbedを作成
         embed = discord.Embed(
-            title=f"📊 {stats.get('プレイヤー名', interaction.user.display_name)} の戦績ステータス",
+            title=f"📊 {stats.get('プレイヤー名', interaction.user.display_name)} の戦績",
             color=discord.Color.gold()
         )
         
@@ -52,13 +52,13 @@ class StatusCheckButton(discord.ui.Button):
         
         # 3. 各ランキングの追加
         picks_str = get_list_str("Pick", 5)
-        embed.add_field(name="👑 よく使う指導者", value=picks_str, inline=True)
+        embed.add_field(name="👑 指導者", value=picks_str, inline=False)
         
         team_str = get_list_str("Teammates", 6)
-        embed.add_field(name="🤝 よく遊ぶ味方", value=team_str, inline=True)
+        embed.add_field(name="🤝 Teams", value=team_str, inline=False)
         
         rival_str = get_list_str("Rivals", 6)
-        embed.add_field(name="🔥 因縁のライバル", value=rival_str, inline=True)
+        embed.add_field(name="🔥 Rivals", value=rival_str, inline=False)
         
         # 💡 エフェメラル(自分にだけ見える)で結果を送信
         await interaction.followup.send(embed=embed, ephemeral=True)
