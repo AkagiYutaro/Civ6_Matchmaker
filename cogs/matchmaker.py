@@ -193,5 +193,83 @@ class MatchmakerCog(commands.Cog):
         except Exception as e:
             await interaction.response.send_message(f"破棄に失敗しました: {e}", ephemeral=True)
 
+    @app_commands.command(name="civ_force_split", description="[管理/ホスト用] 募集パネルが15分経過で応答しなくなった場合、強制的にチーム分けを実行します。")
+    async def civ_force_split(self, interaction: discord.Interaction):
+        is_admin = interaction.user.guild_permissions.administrator
+        
+        # 直近のBotの発言から「対戦募集」のメッセージを探し出す
+        target_msg = None
+        async for msg in interaction.channel.history(limit=50):
+            if msg.author == self.bot.user and msg.embeds:
+                if "対戦募集" in str(msg.embeds[0].title) or "参加者一覧" in str(msg.embeds[0].fields[0].name):
+                    target_msg = msg
+                    break
+        
+        if not target_msg:
+            return await interaction.response.send_message("直近に募集メッセージが見つかりませんでした。再度 /civ_match を実行してください。", ephemeral=True)
+            
+        # Embedのテキストからメンション部分を抽出し、参加者のIDを復元する
+        participants = {}
+        for field in target_msg.embeds[0].fields:
+            if "参加者一覧" in field.name:
+                # 正規表現で <@12345...> を抽出
+                extracted_ids = re.findall(r'<@!?(\d+)>', field.value)
+                for pid in extracted_ids:
+                    participants[int(pid)] = f"ID:{pid}"
+                    
+        if len(participants) < 2:
+            return await interaction.response.send_message(f"参加者が2名未満（現在{len(participants)}名）のためチーム分けできません。", ephemeral=True)
+            
+        if not is_admin and interaction.user.id not in participants:
+            return await interaction.response.send_message("対戦の参加者または管理者のみ実行可能です。", ephemeral=True)
+
+        # 処理時間がかかる可能性があるため待機状態にする
+        await interaction.response.defer()
+
+        # 抽出したメンバーでチーム分け処理
+        players_info = self.bot.sheet_manager.get_player_scores(list(participants.keys()))
+        for p_id, p_data in list(players_info.items()):
+            if p_data is None:
+                players_info[p_id] = {"name": f"未登録({str(p_id)[:5]})", "score": 3}
+
+        from logic.matchmaker_logic import balance_teams
+        team_a, team_b = balance_teams(players_info)
+        
+        team_a_str = "\n".join([f"・<@{p_id}>" for p_id in team_a]) if team_a else "なし"
+        team_b_str = "\n".join([f"・<@{p_id}>" for p_id in team_b]) if team_b else "なし"
+
+        from ui.matchmaker_ui import TeamResultPublicView, HostMapControlView
+        
+        host = interaction.user
+        result_public_view = TeamResultPublicView(participants, host)
+        result_public_view.team_a_ids = team_a
+        result_public_view.team_b_ids = team_b
+        
+        match_id = self.bot.sheet_manager.get_next_match_id()
+
+        embed = discord.Embed(title=f"対戦募集 {match_id}", description="**チーム分け結果 (コマンド強制実行)**", color=discord.Color.gold())
+        embed.add_field(name="【対戦設定】", value="🗺️ Map: **未定（現在メンバー投票中...）**", inline=False)
+        embed.add_field(name="🔵 チームA", value=team_a_str, inline=True)
+        embed.add_field(name="🔴 チームB", value=team_b_str, inline=True)
+
+        # 古い募集メッセージを無効化して混乱を防ぐ
+        try:
+            old_embed = target_msg.embeds[0]
+            old_embed.color = discord.Color.dark_grey()
+            await target_msg.edit(content="⚠️ この募集パネルは時間経過により強制移行されました。", embed=old_embed, view=None)
+        except:
+            pass
+
+        # チーム分け結果パネルを通常メッセージとして新しく送信
+        new_public_msg = await interaction.channel.send(embed=embed, view=result_public_view)
+        
+        # コマンドを実行したホストに対して、新しくマップ開票用の操作パネルを発行
+        next_control_view = HostMapControlView(new_public_msg, result_public_view, host, self.bot.sheet_manager)
+        await interaction.followup.send(
+            content="✅ **チーム分けを強制実行しました！**\nメンバーのマップ投票を集計するため、タイミングを見て「マップ開票・決定」を押してください。",
+            view=next_control_view,
+            ephemeral=True
+        )
+
 async def setup(bot):
     await bot.add_cog(MatchmakerCog(bot))
