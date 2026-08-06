@@ -35,7 +35,6 @@ class BanPickPhaseManager:
         self.msg_a = None
         self.msg_b = None
         
-        # 💡 追加: リストの顔ぶれが変わるのを防ぐための状態保存
         self.shuffled_available_leaders = []
 
     async def report_ban_done(self, team_name, banned_list, interaction: discord.Interaction):
@@ -70,7 +69,6 @@ class BanPickPhaseManager:
 
         final_banned_uids = set(self.global_banned + self.banned_a + self.banned_b)
         
-        # 💡 修正: シャッフル済みのリストから生存者を抽出するように修正（リストのリセット防止）
         source_leaders = self.shuffled_available_leaders if self.shuffled_available_leaders else self.all_leaders
         survivors = [L for L in source_leaders if L['uid'] not in final_banned_uids]
         
@@ -199,7 +197,6 @@ class Phase2EntryView(discord.ui.View):
         if interaction.user.id != self.rep_a and not self.is_admin(interaction):
             return await interaction.response.send_message(f"チームAの代表者(<@{self.rep_a}>)のみ操作可能です。", ephemeral=True)
             
-        # 💡 修正②: 相手(B)のリストを渡し、文言を変更する
         view = TargetBanView(self.required_bans, self.chunks_b, self.manager, "A")
         await interaction.response.send_message("【🔵 チームA】\n 相手チーム(B)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
@@ -216,7 +213,6 @@ class Phase2EntryView(discord.ui.View):
         if interaction.user.id != self.rep_b and not self.is_admin(interaction):
             return await interaction.response.send_message(f"チームBの代表者(<@{self.rep_b}>)のみ操作可能です。", ephemeral=True)
             
-        # 💡 修正②: 相手(A)のリストを渡し、文言を変更する
         view = TargetBanView(self.required_bans, self.chunks_a, self.manager, "B")
         await interaction.response.send_message("【🔴 チームB】\n 相手チーム(A)のピック候補から、BANする指導者を選んでください:", view=view, ephemeral=True)
 
@@ -333,7 +329,6 @@ class GlobalBanView(discord.ui.View):
             manager = BanPickPhaseManager(interaction, self.host, self.team_a, self.team_b, self.all_leaders, banned_global, self.sheet_manager, self.chosen_map, self.max_vote_val, self.match_id)
             
             random.shuffle(available_leaders)
-            # 💡 追加: 次のフェーズでも順序が維持されるようにマネージャーに保存
             manager.shuffled_available_leaders = available_leaders
             
             list_a, list_b = split_and_number_leaders(available_leaders, 'target_disp_no')
@@ -377,7 +372,7 @@ class GlobalBanView(discord.ui.View):
             await interaction.edit_original_response(content=None, embed=embed, view=entry_view)
             manager.msg_a = await interaction.original_response() 
         else:
-            pass # 片方だけ確定した場合は何もしない
+            pass 
 
 
 class BanPickStartView(discord.ui.View):
@@ -412,7 +407,10 @@ class BanPickStartView(discord.ui.View):
                         logger.error(f"VC移動エラー: {e}")
 
         raw_leaders = self.sheet_manager.get_leaders() if hasattr(self.sheet_manager, "get_leaders") else []
-        all_leaders, global_pool = prepare_leader_data(raw_leaders)
+        
+        # 💡 最重要修正: interaction.client (Botの本体情報) を引数として渡す！
+        # これにより、logic側の get_emoji() による絵文字チェック安全装置が起動します
+        all_leaders, global_pool = prepare_leader_data(raw_leaders, interaction.client)
             
         required_bans = 5
 
