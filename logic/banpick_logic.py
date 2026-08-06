@@ -6,10 +6,10 @@ import discord
 
 logger = logging.getLogger('discord.banpick')
 
+# ==========================================
+# スプレッドシート カウントアップ用非同期処理
+# ==========================================
 async def update_ban_count_in_sheet(sheet_manager, banned_names):
-    """
-    BANされた指導者の名前リストを受け取り、非同期でスプレッドシートのBAN回数を更新する。
-    """
     if not sheet_manager or not banned_names:
         return
         
@@ -17,9 +17,9 @@ async def update_ban_count_in_sheet(sheet_manager, banned_names):
         try:
             ws = sheet_manager.sheet.worksheet("指導者")
             records = ws.get_all_records()
-            headers = ws.row_values(1)
+            # ヘッダーの取得（空白文字等の除去）
+            headers = [str(h).strip() for h in ws.row_values(1)]
             
-            # BAN回数列、PICK回数列がない場合は自動追加
             needs_update = False
             if "BAN回数" not in headers:
                 headers.append("BAN回数")
@@ -57,8 +57,10 @@ async def update_ban_count_in_sheet(sheet_manager, banned_names):
     await asyncio.to_thread(_update)
 
 
+# ==========================================
+# リーダーリスト整形ロジック
+# ==========================================
 def format_leader_list(uid_list, all_leaders):
-    """UIDのリストから、連番＋絵文字＋指導者名の文字列を生成する"""
     names = []
     for i, uid in enumerate(uid_list, start=1):
         leader = next((l for l in all_leaders if l['uid'] == uid), None)
@@ -70,7 +72,6 @@ def format_leader_list(uid_list, all_leaders):
 
 
 def split_and_number_leaders(leaders, number_key):
-    """リストを半分に分割し、それぞれに指定したキー名で通し番号(1〜)を振る"""
     half_idx = (len(leaders) + 1) // 2
     list_a = leaders[:half_idx]
     list_b = leaders[half_idx:]
@@ -83,8 +84,7 @@ def split_and_number_leaders(leaders, number_key):
     return list_a, list_b
 
 
-def prepare_leader_data(raw_leaders):
-    """スプレッドシートの生データから、全指導者リストとグローバルBAN候補リストを構築する"""
+def prepare_leader_data(raw_leaders, client=None):
     all_leaders = []
     for i, L in enumerate(raw_leaders):
         leader_data = L.copy()
@@ -102,8 +102,23 @@ def prepare_leader_data(raw_leaders):
         
         if emoji_nm and emoji_id.isdigit():
             try:
-                emoji_obj = discord.PartialEmoji(name=emoji_nm, id=int(emoji_id))
-                emoji_text = f"<:{emoji_nm}:{emoji_id}>"
+                e_id = int(emoji_id)
+                # 💡 修正: 自分で組み立てるのをやめ、BOTが認識している「本物の絵文字データ」を直接取得する
+                if client:
+                    fetched_emoji = client.get_emoji(e_id)
+                    if fetched_emoji:
+                        emoji_obj = fetched_emoji # 本物をそのままUIに渡す
+                        # アニメーション(GIF)かどうかも自動判定してテキスト化
+                        a_prefix = "a" if fetched_emoji.animated else ""
+                        emoji_text = f"<{a_prefix}:{fetched_emoji.name}:{fetched_emoji.id}>"
+                    else:
+                        logger.warning(f"BOTがアクセスできない絵文字IDです。非表示にします: {emoji_nm} ({e_id})")
+                        emoji_obj = None
+                        emoji_text = ""
+                else:
+                    # fallback
+                    emoji_obj = discord.PartialEmoji(name=emoji_nm, id=e_id)
+                    emoji_text = f"<:{emoji_nm}:{e_id}>"
             except Exception as e:
                 logger.warning(f"絵文字パース失敗 [{emoji_nm}]: {e}")
         elif emoji_id and not emoji_id.isdigit():
