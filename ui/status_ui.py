@@ -20,6 +20,10 @@ class StatusCheckButton(discord.ui.Button):
         if not stats:
             return await interaction.followup.send("⚠️ まだあなたの戦績データが「集計」シートにありません。\n対戦を1回以上記録してから再度お試しください！", ephemeral=True)
             
+        # 💡 追加: プレイヤーデータから現在のレートを取得
+        rates_data = sheet_manager.get_player_rates([user_id])
+        current_rate = rates_data.get(user_id, 1500)
+        
         # ステータス表示用のリッチなEmbedを作成
         embed = discord.Embed(
             title=f"📊 {stats.get('プレイヤー名', interaction.user.display_name)} の戦績",
@@ -29,15 +33,16 @@ class StatusCheckButton(discord.ui.Button):
         # 1. 総合戦績
         win = stats.get("WIN", 0)
         lose = stats.get("LOSE", 0)
-        rate = stats.get("WinRate", "0%")
+        win_rate = stats.get("WinRate", "0%")
         # 勝率が数値(float)で返ってきた場合はパーセント表記に変換
-        if isinstance(rate, float):
-            rate = f"{rate:.1%}"
+        if isinstance(win_rate, float):
+            win_rate = f"{win_rate:.1%}"
         total = stats.get("総プレイ数", 0)
         
+        # 💡 総合戦績の先頭にレートを表示
         embed.add_field(
             name="⚔️ 総合戦績", 
-            value=f"**{win}勝 {lose}敗** (勝率: {rate})\n総プレイ数: {total}回", 
+            value=f"**🎖️ レート: {current_rate}**\n**{win}勝 {lose}敗** (勝率: {win_rate})\n総プレイ数: {total}回", 
             inline=False
         )
         
