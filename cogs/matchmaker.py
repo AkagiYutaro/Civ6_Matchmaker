@@ -3,15 +3,32 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import random
-from ui.matchmaker_ui import MatchmakerPublicView, HostControlView, MAP_EMOJIS
-from logic.matchmaker_logic import calculate_map_votes
+import logging
+
+from ui.matchmaker_ui import MatchmakerPublicView, HostControlView, HostMapControlView, TeamResultPublicView, MAP_EMOJIS
+from logic.matchmaker_logic import calculate_map_votes, balance_teams
 from ui.banpick_ui import BanPickStartView
 from ui.registration_ui import RegistrationPanelView
 from ui.status_ui import PlayerStatusPanelView
 
+logger = logging.getLogger('discord.cogs.matchmaker')
+
 class MatchmakerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        """全ての操作（コマンド実行やボタンクリック）を記録し、連打の原因を特定するためのログ出力"""
+        user = interaction.user
+        # スラッシュコマンドの実行ログ
+        if interaction.type == discord.InteractionType.application_command:
+            cmd_name = interaction.command.name if interaction.command else "Unknown"
+            logger.info(f"[ACTION-CMD] {user.display_name} ({user.name}) executed: /{cmd_name}")
+        # ボタンやドロップダウンの操作ログ
+        elif interaction.type == discord.InteractionType.component:
+            custom_id = interaction.data.get('custom_id', 'Unknown')
+            logger.info(f"[ACTION-BTN] {user.display_name} ({user.name}) clicked: {custom_id}")
 
     @app_commands.command(name="civ_setup_register", description="[管理者用] プレイヤーのスキル登録・アンケートパネルをチャンネルに設置します。")
     @app_commands.default_permissions(administrator=True)
@@ -91,7 +108,6 @@ class MatchmakerCog(commands.Cog):
             ephemeral=True
         )
 
-    # 💡 追加: メニューを消してしまった場合などの強制移行コマンド
     @app_commands.command(name="map_vote", description="[管理/ホスト用] 誤って操作パネルを消してしまった場合、強制的にマップを決定しBAN/PICKへ移行します。")
     @app_commands.describe(map_name="強制決定するマップ名を選択（任意）")
     async def map_vote(self, interaction: discord.Interaction, map_name: str = None):
@@ -128,21 +144,17 @@ class MatchmakerCog(commands.Cog):
         if not chosen_map:
             if hasattr(self.bot, 'match_sessions') and bot_msg.id in self.bot.match_sessions:
                 result_view = self.bot.match_sessions[bot_msg.id]
-                from logic.matchmaker_logic import calculate_map_votes
-                from ui.matchmaker_ui import MAP_EMOJIS
                 calc_map, max_votes = calculate_map_votes(result_view.map_votes_data, result_view.participants, MAP_EMOJIS)
                 if max_votes > 0:
                     chosen_map = calc_map
                     
         # 投票データも指定もなく未定の場合はランダム
         if not chosen_map:
-            # import random
             MAPS = ["七つの海", "パンゲア", "パンゲアウルティマ", "湖", "ハイランド", "豊かな台地", "群島", "地軸傾斜"]
             chosen_map = map_name if map_name else random.choice(MAPS)
         
         match_id = self.bot.sheet_manager.get_next_match_id()
         
-        # from ui.banpick_ui import BanPickStartView
         bp_view = BanPickStartView(
             host=interaction.user,
             team_a=team_a,
@@ -232,13 +244,10 @@ class MatchmakerCog(commands.Cog):
             if p_data is None:
                 players_info[p_id] = {"name": f"未登録({str(p_id)[:5]})", "score": 3}
 
-        from logic.matchmaker_logic import balance_teams
         team_a, team_b = balance_teams(players_info)
         
         team_a_str = "\n".join([f"・<@{p_id}>" for p_id in team_a]) if team_a else "なし"
         team_b_str = "\n".join([f"・<@{p_id}>" for p_id in team_b]) if team_b else "なし"
-
-        from ui.matchmaker_ui import TeamResultPublicView, HostMapControlView
         
         host = interaction.user
         result_public_view = TeamResultPublicView(participants, host)
